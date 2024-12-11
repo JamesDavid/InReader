@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-white text-reader-text;
+  }
+}
+
+@layer components {
+  .sidebar-item {
+    @apply px-4 py-2 hover:bg-reader-hover cursor-pointer text-sm;
+  }
+  
+  .feed-item {
+    @apply border-b border-reader-border px-4 py-3 hover:bg-reader-hover cursor-pointer;
+  }
+  
+  .feed-title {
+    @apply font-semibold text-reader-blue;
+  }
+  
+  .btn {
+    @apply px-4 py-2 rounded text-sm;
+  }
+  
+  .btn-blue {
+    @apply bg-reader-blue text-white hover:bg-opacity-90;
+  }
+}
