@@ -30,7 +30,13 @@ interface FeedEntry {
     model: string;
   };
   chatHistory?: ChatMessage[];
-  hasBeenProcessed?: boolean;
+  requestProcessingStatus?: 'pending' | 'success' | 'failed';
+  lastRequestAttempt?: Date;
+  requestError?: {
+    message: string;
+    code?: string;
+    details?: string;
+  };
 }
 
 interface ChatMessage {
@@ -64,17 +70,23 @@ class ReaderDatabase extends Dexie {
   constructor() {
     super('ReaderDatabase');
     
+    // Define all fields that need indexing
+    const entriesSchema = '++id, feedId, publishDate, isRead, readDate, isStarred, starredDate, isListened, listenedDate, lastChatDate, aiSummary, chatHistory, requestProcessingStatus';
+    const feedsSchema = '++id, url, folderId';
+    const foldersSchema = '++id, parentId';
+    const savedSearchesSchema = '++id, query';
+
     // Base schema
     this.version(4).stores({
-      feeds: '++id, url, folderId',
-      entries: '++id, feedId, publishDate, isRead, isStarred, aiSummary, chatHistory',
-      folders: '++id, parentId',
-      savedSearches: '++id, query'
+      feeds: feedsSchema,
+      entries: entriesSchema,
+      folders: foldersSchema,
+      savedSearches: savedSearchesSchema
     });
 
     // Add isListened field
     this.version(5).stores({
-      entries: '++id, feedId, publishDate, isRead, isStarred, isListened, aiSummary, chatHistory'
+      entries: entriesSchema
     }).upgrade(tx => {
       return tx.table('entries').toCollection().modify(entry => {
         entry.isListened = false;
@@ -83,15 +95,15 @@ class ReaderDatabase extends Dexie {
 
     // Update to match browser version
     this.version(610).stores({
-      feeds: '++id, url, folderId',
-      entries: '++id, feedId, publishDate, isRead, isStarred, isListened, aiSummary, chatHistory',
-      folders: '++id, parentId',
-      savedSearches: '++id, query'
+      feeds: feedsSchema,
+      entries: entriesSchema,
+      folders: foldersSchema,
+      savedSearches: savedSearchesSchema
     });
 
     // Add starredDate field
     this.version(611).stores({
-      entries: '++id, feedId, publishDate, isRead, isStarred, starredDate, isListened, aiSummary, chatHistory'
+      entries: entriesSchema
     }).upgrade(tx => {
       return tx.table('entries').toCollection().modify(entry => {
         if (entry.isStarred && !entry.starredDate) {
@@ -102,7 +114,7 @@ class ReaderDatabase extends Dexie {
 
     // Add listenedDate field
     this.version(612).stores({
-      entries: '++id, feedId, publishDate, isRead, isStarred, starredDate, isListened, listenedDate, aiSummary, chatHistory'
+      entries: entriesSchema
     }).upgrade(tx => {
       return tx.table('entries').toCollection().modify(entry => {
         if (entry.isListened && !entry.listenedDate) {
@@ -113,7 +125,7 @@ class ReaderDatabase extends Dexie {
 
     // Add lastChatDate field
     this.version(613).stores({
-      entries: '++id, feedId, publishDate, isRead, isStarred, starredDate, isListened, listenedDate, lastChatDate, aiSummary, chatHistory'
+      entries: entriesSchema
     }).upgrade(tx => {
       return tx.table('entries').toCollection().modify(entry => {
         // For existing entries with chat history, set lastChatDate to the most recent message
@@ -129,12 +141,38 @@ class ReaderDatabase extends Dexie {
 
     // Add readDate field
     this.version(614).stores({
-      entries: '++id, feedId, publishDate, isRead, readDate, isStarred, starredDate, isListened, listenedDate, lastChatDate, aiSummary, chatHistory'
+      entries: entriesSchema
     }).upgrade(tx => {
       return tx.table('entries').toCollection().modify(entry => {
         // For existing read entries, set readDate to current time
         if (entry.isRead && !entry.readDate) {
           entry.readDate = new Date();
+        }
+      });
+    });
+
+    // Add requestProcessingStatus field
+    this.version(615).stores({
+      entries: entriesSchema
+    }).upgrade(tx => {
+      return tx.table('entries').toCollection().modify(entry => {
+        if (!entry.requestProcessingStatus) {
+          entry.requestProcessingStatus = 'pending';
+          entry.lastRequestAttempt = null;
+        }
+      });
+    });
+
+    // Add requestError field
+    this.version(616).stores({
+      entries: entriesSchema
+    }).upgrade(tx => {
+      return tx.table('entries').toCollection().modify(entry => {
+        if (entry.requestProcessingStatus === 'failed' && !entry.requestError) {
+          entry.requestError = {
+            message: 'Unknown error from previous version',
+            code: 'UNKNOWN'
+          };
         }
       });
     });
@@ -163,7 +201,8 @@ export async function addEntry(entry: Omit<FeedEntry, 'id'>) {
     return await db.entries.add({
       ...entry,
       isListened: false,
-      hasBeenProcessed: false
+      requestProcessingStatus: entry.requestProcessingStatus || 'pending',
+      lastRequestAttempt: entry.lastRequestAttempt || null
     });
   }
   return existingEntry.id;
@@ -486,6 +525,30 @@ export async function deleteFolder(folderId: number) {
 
 export async function markAsProcessed(entryId: number) {
   return await db.entries.update(entryId, { hasBeenProcessed: true });
+}
+
+export async function updateRequestStatus(
+  entryId: number, 
+  status: 'pending' | 'success' | 'failed',
+  error?: {
+    message: string;
+    code?: string;
+    details?: string;
+  }
+) {
+  const update: Partial<FeedEntry> = {
+    requestProcessingStatus: status,
+    lastRequestAttempt: new Date()
+  };
+
+  if (error) {
+    update.requestError = error;
+  } else {
+    // Clear any existing error when status is success or pending
+    update.requestError = undefined;
+  }
+
+  return await db.entries.update(entryId, update);
 }
 
 export type { Feed, FeedEntry, Folder, SavedSearch, ChatMessage }; 

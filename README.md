@@ -1,6 +1,6 @@
 # 📚 InReader
 
-> A modern, keyboard-driven RSS feed reader that brings back the magic of Google Reader with AI superpowers! 🚀
+> A modern, keyboard-driven RSS feed reader that brings back the magic of Google Reader with AI! 🚀
 
 InReader combines the beloved simplicity of Google Reader with modern features like AI-powered summaries, chat capabilities, and a beautiful dark mode. Perfect for power users who love keyboard shortcuts and AI enthusiasts who want to chat with their articles!
 

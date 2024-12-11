@@ -49,10 +49,32 @@ export async function addNewFeed(url: string, folderId?: number) {
       link: item.link,
       publishDate: new Date(item.pubDate),
       isRead: false,
-      isStarred: false
+      isStarred: false,
+      requestProcessingStatus: 'pending'
     }));
 
-    await Promise.all(entries.map(entry => addEntry(entry)));
+    // Add entries and get their IDs
+    const entryIds = await Promise.all(entries.map(entry => addEntry(entry)));
+    
+    // Process each entry through the request queue
+    await Promise.all(entryIds.map(async (entryId) => {
+      if (typeof entryId === 'number') {
+        try {
+          await enqueueRequest(
+            async () => {
+              // Here you can add any additional processing needed for each entry
+              // For example, fetching full article content, generating summaries, etc.
+              return true;
+            },
+            entryId
+          );
+        } catch (error) {
+          console.error('Error processing entry:', error);
+          // The request queue service will handle marking the entry as failed
+        }
+      }
+    }));
+
     return feedId;
   } catch (error) {
     console.error('Error adding feed:', error);
@@ -85,10 +107,31 @@ export async function refreshFeed(feed: Feed) {
       link: item.link,
       publishDate: new Date(item.pubDate),
       isRead: false,
-      isStarred: false
+      isStarred: false,
+      requestProcessingStatus: 'pending'
     }));
 
-    await Promise.all(entries.map(entry => addEntry(entry)));
+    // Add entries and get their IDs
+    const entryIds = await Promise.all(entries.map(entry => addEntry(entry)));
+    
+    // Process each entry through the request queue
+    await Promise.all(entryIds.map(async (entryId) => {
+      if (typeof entryId === 'number') {
+        try {
+          await enqueueRequest(
+            async () => {
+              // Here you can add any additional processing needed for each entry
+              // For example, fetching full article content, generating summaries, etc.
+              return true;
+            },
+            entryId
+          );
+        } catch (error) {
+          console.error('Error processing entry:', error);
+          // The request queue service will handle marking the entry as failed
+        }
+      }
+    }));
   } catch (error) {
     console.error('Error refreshing feed:', error);
     throw new Error('Failed to refresh feed');

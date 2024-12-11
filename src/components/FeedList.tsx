@@ -107,6 +107,13 @@ const FeedList: React.FC<FeedListProps> = (props) => {
           : entry
       )
     );
+
+    // Dispatch custom event for sidebar update
+    const event = new CustomEvent('entryMarkedAsRead', {
+      detail: { feedId: feedId ? parseInt(feedId) : null }
+    });
+    window.dispatchEvent(event);
+
     // Then refresh from DB
     const loadedEntries = props.entries 
       ? props.entries 
@@ -190,12 +197,43 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       if (feedId) {
         const feed = await db.feeds.get(parseInt(feedId));
         if (feed) {
+          // Get all entries for this feed that have failed processing
+          const entries = await db.entries
+            .where('feedId')
+            .equals(parseInt(feedId))
+            .filter(entry => entry.requestProcessingStatus === 'failed')
+            .toArray();
+
+          // Reset their status to pending so they can be retried
+          await Promise.all(entries.map(entry => 
+            db.entries.update(entry.id!, { 
+              requestProcessingStatus: 'pending',
+              lastRequestAttempt: null 
+            })
+          ));
+
           await refreshFeed(feed);
           const loadedEntries = await getFeedEntries(parseInt(feedId));
           setEntries(loadedEntries);
         }
       } else if (folderId) {
         const folderFeeds = await getFeedsByFolder(parseInt(folderId));
+        
+        // Get all failed entries for feeds in this folder
+        const failedEntries = await db.entries
+          .where('feedId')
+          .anyOf(folderFeeds.map(f => f.id!))
+          .filter(entry => entry.requestProcessingStatus === 'failed')
+          .toArray();
+
+        // Reset their status to pending
+        await Promise.all(failedEntries.map(entry => 
+          db.entries.update(entry.id!, { 
+            requestProcessingStatus: 'pending',
+            lastRequestAttempt: null 
+          })
+        ));
+
         await Promise.all(folderFeeds.map(feed => refreshFeed(feed)));
         const entriesPromises = folderFeeds.map(feed => getFeedEntries(feed.id!));
         const feedEntries = await Promise.all(entriesPromises);
@@ -329,49 +367,53 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       const summary = await generateSummary(finalContent, entry.link, config);
       
       // Update the entry in the database with the summary
-      await db.entries.update(entry.id!, {
-        aiSummary: summary,
-        aiSummaryMetadata: {
-          isFullContent,
-          model: config.summaryModel
-        }
-      });
+      if (entry.id) {
+        await db.entries.update(entry.id, {
+          aiSummary: summary,
+          aiSummaryMetadata: {
+            isFullContent,
+            model: config.summaryModel
+          }
+        });
 
-      // Update the local state
-      setSummaryStates(prev => ({ 
-        ...prev, 
-        [entry.id!]: {
-          content: summary,
-          isFullContent,
-          model: config.summaryModel,
-          isLoading: false
-        }
-      }));
+        // Update the local state
+        setSummaryStates(prev => ({ 
+          ...prev, 
+          [entry.id!]: {
+            content: summary,
+            isFullContent,
+            model: config.summaryModel,
+            isLoading: false
+          }
+        }));
 
-      // Update entries state while preserving the current view
-      setEntries(prevEntries => 
-        prevEntries.map(e => 
-          e.id === entry.id ? {
-            ...e,
-            aiSummary: summary,
-            aiSummaryMetadata: {
-              isFullContent,
-              model: config.summaryModel
-            }
-          } : e
-        )
-      );
+        // Update entries state while preserving the current view
+        setEntries(prevEntries => 
+          prevEntries.map(e => 
+            e.id === entry.id ? {
+              ...e,
+              aiSummary: summary,
+              aiSummaryMetadata: {
+                isFullContent,
+                model: config.summaryModel
+              }
+            } : e
+          )
+        );
+      }
     } catch (error) {
       console.error('Failed to generate summary:', error);
-      setSummaryStates(prev => ({ 
-        ...prev, 
-        [entry.id!]: {
-          content: 'Failed to generate summary',
-          isFullContent: false,
-          model: config.summaryModel,
-          isLoading: false
-        }
-      }));
+      if (entry.id) {
+        setSummaryStates(prev => ({ 
+          ...prev, 
+          [entry.id!]: {
+            content: 'Failed to generate summary',
+            isFullContent: false,
+            model: config.summaryModel,
+            isLoading: false
+          }
+        }));
+      }
     }
   };
 

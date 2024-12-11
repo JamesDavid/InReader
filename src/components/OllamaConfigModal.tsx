@@ -420,6 +420,32 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
                           <span className="font-mono">{queueStats.pending}</span>
                         </div>
                       </div>
+
+                      {/* Request List */}
+                      {(queueStats.requests?.length > 0) && (
+                        <div className={`mt-3 border-t ${isDarkMode ? 'border-gray-600' : 'border-gray-200'}`}>
+                          <div className="mt-2 max-h-48 overflow-y-auto">
+                            {queueStats.requests.map((request) => (
+                              <div 
+                                key={request.entryId}
+                                className={`py-2 px-2 text-sm rounded ${
+                                  request.status === 'processing' 
+                                    ? (isDarkMode ? 'bg-blue-900/30' : 'bg-blue-50')
+                                    : ''
+                                }`}
+                              >
+                                <div className={`font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                                  {request.entryTitle}
+                                </div>
+                                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {request.feedTitle} • {request.status}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
                       {(queueStats.size > 0 || queueStats.pending > 0) && (
                         <button
                           type="button"

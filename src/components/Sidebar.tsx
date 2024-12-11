@@ -37,7 +37,7 @@ interface SidebarProps {
 }
 
 interface FeedItemWithUnread extends Feed {
-  unreadCount: number;
+  order?: number;
 }
 
 interface VisibleItem {
@@ -89,15 +89,12 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Create feed items
   const feedItems = useMemo(() => {
-    const items = feeds.map(feed => ({
+    return feeds.map(feed => ({
       id: feed.id!,
       path: `/feed/${feed.id}`,
       title: feed.title,
-      unreadCount: feed.unreadCount,
       onDelete: () => handleDeleteFeed(feed.id!)
     }));
-    console.log('Created feed items with unread counts:', items);
-    return items;
   }, [feeds]);
 
   const mainItems = [
@@ -157,38 +154,9 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       // Sort feeds by order field
       const sortedFeeds = feedsData.sort((a, b) => (a.order || 0) - (b.order || 0));
-
-      // First set feeds with 0 unread counts
-      const feedsWithPlaceholderUnread = sortedFeeds.map(feed => ({
-        ...feed,
-        unreadCount: 0
-      }));
-      setFeeds(feedsWithPlaceholderUnread);
+      setFeeds(sortedFeeds);
       setFolders(foldersData);
       setIsLoading(false);
-
-      // Then update unread counts asynchronously
-      const updateUnreadCounts = async () => {
-        const unreadPromises = sortedFeeds.map(async feed => {
-          const unreadEntries = await getUnreadEntries(feed.id);
-          return {
-            ...feed,
-            unreadCount: unreadEntries.length
-          };
-        });
-
-        // Update feeds one by one as they complete
-        for (const promise of unreadPromises) {
-          const feedWithUnread = await promise;
-          setFeeds(currentFeeds => 
-            currentFeeds.map(feed => 
-              feed.id === feedWithUnread.id ? feedWithUnread : feed
-            )
-          );
-        }
-      };
-
-      updateUnreadCounts();
     } catch (error) {
       console.error('Error loading data:', error);
       setFeeds([]);
@@ -199,8 +167,29 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Load feeds and folders on mount and when modals close
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    const initialLoad = async () => {
+      try {
+        setIsLoading(true);
+        const [feedsData, foldersData] = await Promise.all([
+          getAllFeeds(),
+          getFolders()
+        ]);
+
+        // Sort feeds by order field
+        const sortedFeeds = feedsData.sort((a, b) => (a.order || 0) - (b.order || 0));
+        setFeeds(sortedFeeds);
+        setFolders(foldersData);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error loading data:', error);
+        setFeeds([]);
+        setFolders([]);
+        setIsLoading(false);
+      }
+    };
+
+    initialLoad();
+  }, []); // Empty dependency array since this is only for initial load
 
   const handleDeleteFeed = async (id: number) => {
     await deleteFeed(id);
@@ -255,11 +244,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       ]);
 
       const sortedFeeds = feedsData.sort((a, b) => (a.order || 0) - (b.order || 0));
-      const feedsWithPlaceholderUnread = sortedFeeds.map(feed => ({
-        ...feed,
-        unreadCount: 0
-      }));
-      setFeeds(feedsWithPlaceholderUnread);
+      setFeeds(sortedFeeds);
 
       // Update unread counts asynchronously
       const updateUnreadCounts = async () => {
@@ -293,7 +278,9 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Register the refresh callback with Layout
   useEffect(() => {
-    onRegisterRefreshFeeds?.(handleRefreshFeeds);
+    if (onRegisterRefreshFeeds) {
+      onRegisterRefreshFeeds(handleRefreshFeeds);
+    }
   }, [onRegisterRefreshFeeds, handleRefreshFeeds]);
 
   // Keep initial route sync effect
@@ -312,7 +299,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   useEffect(() => {
     if (selectedIndex >= 0 && selectedIndex < visibleItems.length) {
       const currentItem = visibleItems[selectedIndex];
-      if (currentItem) {
+      const currentPath = location.pathname;
+      
+      if (currentItem && currentPath !== currentItem.path) {
         isKeyboardNavRef.current = true;
         if (currentItem.isFolder) {
           navigate(`/folder/${currentItem.id!.toString()}`);
@@ -321,7 +310,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         }
       }
     }
-  }, [selectedIndex, visibleItems, navigate]);
+  }, [selectedIndex, visibleItems, navigate, location.pathname]);
 
   // Keep scroll into view effect
   useEffect(() => {

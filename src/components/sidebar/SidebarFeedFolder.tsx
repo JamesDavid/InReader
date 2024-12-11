@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ChevronDownIcon } from '@heroicons/react/24/outline';
 import SidebarFeedItem from './SidebarFeedItem';
 
@@ -6,7 +6,6 @@ interface FeedInFolder {
   id: number;
   title: string;
   path: string;
-  unreadCount: number;
   isRefreshing: boolean;
 }
 
@@ -47,7 +46,19 @@ const SidebarFeedFolder: React.FC<SidebarFeedFolderProps> = ({
   isCollapsed,
   onToggleCollapse,
 }) => {
-  const totalUnread = feeds.reduce((sum, feed) => sum + feed.unreadCount, 0);
+  const [feedCounts, setFeedCounts] = useState<Record<number, number>>({});
+  const folderUnreadCount = React.useMemo(() => 
+    Object.values(feedCounts).reduce((sum, count) => sum + count, 0),
+    [feedCounts]
+  );
+
+  const handleFeedUnreadCount = React.useCallback((feedId: number, count: number) => {
+    setFeedCounts(prev => {
+      if (prev[feedId] === count) return prev;
+      return { ...prev, [feedId]: count };
+    });
+  }, []);
+
   const folderIndex = visibleItems.findIndex(item => item.id === `folder-${id}`);
 
   return (
@@ -67,14 +78,14 @@ const SidebarFeedFolder: React.FC<SidebarFeedFolderProps> = ({
           />
           <span className="font-medium">{title}</span>
         </div>
-        {totalUnread > 0 && (
+        {folderUnreadCount > 0 && (
           <span className={`text-xs px-2 py-0.5 rounded-full
             ${isDarkMode 
               ? 'bg-gray-600 text-gray-200'
               : 'bg-gray-200 text-gray-600'
             }`}
           >
-            {totalUnread}
+            {folderUnreadCount}
           </span>
         )}
       </button>
@@ -93,7 +104,6 @@ const SidebarFeedFolder: React.FC<SidebarFeedFolderProps> = ({
                 id={feed.id}
                 path={feed.path}
                 title={feed.title}
-                unreadCount={feed.unreadCount}
                 isActive={selectedIndex === feedIndex}
                 isSelected={selectedIndex === feedIndex}
                 isDarkMode={isDarkMode}
@@ -103,6 +113,7 @@ const SidebarFeedFolder: React.FC<SidebarFeedFolderProps> = ({
                 onSelect={onSelect}
                 onFocusChange={onFocusChange}
                 onDelete={() => onDeleteFeed(feed.id)}
+                onUnreadCountChange={handleFeedUnreadCount}
               />
             );
           })}
