@@ -33,10 +33,11 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
   onDelete,
   onUnreadCountChange,
 }) => {
-  const [localUnreadCount, setLocalUnreadCount] = useState(0);
+  const [localUnreadCount, setLocalUnreadCount] = useState<number | null>(null);
   const [isLoadingCount, setIsLoadingCount] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
   const previousCountRef = useRef(localUnreadCount);
+  const isMountedRef = useRef(true);
 
   const truncateTitle = (text: string, maxLength: number = 20) => {
     if (text.length <= maxLength) return text;
@@ -44,6 +45,8 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
   };
 
   const updateUnreadCount = React.useCallback(async (isInitialLoad = false) => {
+    if (!isMountedRef.current) return;
+    
     try {
       if (!isInitialLoad) {
         setIsLoadingCount(true);
@@ -51,47 +54,64 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
       const unreadEntries = await getUnreadEntries(id);
       const count = unreadEntries.length;
       
-      // Only update if count has changed
-      if (count !== previousCountRef.current) {
+      if (!isMountedRef.current) return;
+
+      // Only update if count has changed or is initial value
+      if (localUnreadCount === null || count !== previousCountRef.current) {
         setLocalUnreadCount(count);
         onUnreadCountChange?.(id, count);
         previousCountRef.current = count;
       }
     } catch (error) {
       console.error('Error loading unread count:', error);
-      setLocalUnreadCount(0);
-      onUnreadCountChange?.(id, 0);
+      if (isMountedRef.current) {
+        // Only set to 0 if we don't have a previous value
+        if (localUnreadCount === null) {
+          setLocalUnreadCount(0);
+          onUnreadCountChange?.(id, 0);
+        }
+      }
     } finally {
-      setIsLoadingCount(false);
+      if (isMountedRef.current) {
+        setIsLoadingCount(false);
+      }
     }
-  }, [id, onUnreadCountChange]);
+  }, [id, onUnreadCountChange, localUnreadCount]);
 
   // Initial load
   useEffect(() => {
+    isMountedRef.current = true;
     updateUnreadCount(true);
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [updateUnreadCount]);
 
   // Staggered periodic refresh
   useEffect(() => {
-    // Add a random delay between 0-5 seconds to stagger updates
     const initialDelay = Math.random() * 5000;
     const timer = setTimeout(() => {
-      // Start the interval after the initial delay
+      if (!isMountedRef.current) return;
+      
       const interval = setInterval(() => {
-        updateUnreadCount();
+        if (isMountedRef.current) {
+          updateUnreadCount();
+        }
       }, 30000);
 
       return () => clearInterval(interval);
     }, initialDelay);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [updateUnreadCount]);
 
   // Listen for entry read updates
   useEffect(() => {
     const handleEntryRead = async (event: CustomEvent) => {
       const { feedId } = event.detail;
-      if (feedId === id || feedId === null) {
+      if ((feedId === id || feedId === null) && isMountedRef.current) {
         await updateUnreadCount();
       }
     };
@@ -132,14 +152,14 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
             <span className="truncate" title={title}>{truncateTitle(title)}</span>
           </div>
           <div className="flex items-center justify-end flex-shrink-0 relative">
-            {(!isLoadingCount && (localUnreadCount > 0 || isLoading)) && (
+            {localUnreadCount !== null && localUnreadCount > 0 && (
               <span className={`text-xs px-2 py-0.5 rounded-full absolute right-2
                 ${isDarkMode 
                   ? 'bg-reader-blue text-white' 
                   : 'bg-reader-blue/10 text-reader-blue'}
                 ${onDelete ? 'group-hover:opacity-0' : ''} transition-opacity`}
               >
-                {isLoadingCount ? '...' : localUnreadCount}
+                {localUnreadCount}
               </span>
             )}
             {onDelete && (
