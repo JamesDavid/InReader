@@ -4,15 +4,19 @@ import { db, updateRequestStatus } from './db';
 let queue: PQueue | null = null;
 
 interface QueuedRequest {
-  entryId: number;
-  feedId: number;
-  feedTitle: string;
-  entryTitle: string;
-  status: 'queued' | 'processing';
+  entryId?: number;
+  feedId?: number;
+  feedTitle?: string;
+  entryTitle?: string;
+  status: 'queued' | 'processing' | 'failed';
   addedAt: Date;
+  error?: string;
+  type?: string;
 }
 
 let queuedRequests: QueuedRequest[] = [];
+let processingRequests: QueuedRequest[] = [];
+let failedRequests: QueuedRequest[] = [];
 
 export const initializeQueue = (concurrency: number = 2) => {
   if (queue) {
@@ -26,6 +30,37 @@ export const initializeQueue = (concurrency: number = 2) => {
     console.log('Initializing new queue with concurrency:', concurrency);
   }
   queue = new PQueue({ concurrency });
+
+  // Set up queue event listeners
+  queue.on('active', () => {
+    console.log('Queue event - active. Queue size:', queue?.size);
+    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
+  });
+
+  queue.on('idle', () => {
+    console.log('Queue event - idle. Queue size:', queue?.size);
+    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
+  });
+
+  queue.on('add', () => {
+    console.log('Queue event - add. Queue size:', queue?.size);
+    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
+  });
+
+  queue.on('next', () => {
+    console.log('Queue event - next. Queue size:', queue?.size);
+    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
+  });
+
+  queue.on('completed', () => {
+    console.log('Queue event - completed. Queue size:', queue?.size);
+    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
+  });
+
+  queue.on('error', () => {
+    console.log('Queue event - error. Queue size:', queue?.size);
+    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
+  });
 };
 
 export const enqueueRequest = async <T>(
@@ -38,14 +73,23 @@ export const enqueueRequest = async <T>(
     initializeQueue();
   }
 
-  // Only check entry status if an entryId is provided
+  // Create a base request object
+  const queuedRequest: QueuedRequest = {
+    status: 'queued',
+    addedAt: new Date(),
+    type: 'unknown'
+  };
+
+  // Add entry-specific information if available
   if (typeof entryId === 'number') {
     try {
+      console.log('Getting entry information for:', entryId);
       const entry = await db.entries.get(entryId);
       if (!entry) {
         console.error('Entry not found:', entryId);
         return Promise.reject(new Error('Entry not found'));
       }
+      console.log('Found entry:', entry);
 
       if (entry.requestProcessingStatus === 'success') {
         console.log('Entry already processed successfully, skipping:', entryId);
@@ -53,21 +97,21 @@ export const enqueueRequest = async <T>(
       }
 
       // Get feed information
+      console.log('Getting feed information for feedId:', entry.feedId);
       const feed = await db.feeds.get(entry.feedId);
       if (!feed) {
         console.error('Feed not found:', entry.feedId);
         return Promise.reject(new Error('Feed not found'));
       }
+      console.log('Found feed:', feed);
 
-      // Add to queued requests
-      queuedRequests.push({
-        entryId,
-        feedId: entry.feedId,
-        feedTitle: feed.title,
-        entryTitle: entry.title,
-        status: 'queued',
-        addedAt: new Date()
-      });
+      // Add entry information to request
+      queuedRequest.entryId = entryId;
+      queuedRequest.feedId = entry.feedId;
+      queuedRequest.feedTitle = feed.title;
+      queuedRequest.entryTitle = entry.title;
+      queuedRequest.type = 'entry';
+      console.log('Updated request with entry and feed info:', queuedRequest);
 
       // Update entry status to pending and record attempt time
       await updateRequestStatus(entryId, 'pending');
@@ -76,45 +120,63 @@ export const enqueueRequest = async <T>(
       return Promise.reject(error);
     }
   }
+
+  // Add to queued requests
+  queuedRequests.push(queuedRequest);
+  console.log('Added request to queue:', queuedRequest);
+  console.log('Current queued requests:', queuedRequests.length);
   
-  console.log('Adding request to queue. Current stats:', getQueueStats());
+  const stats = getQueueStats();
+  console.log('Adding request to queue. Current stats:', stats);
+  console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
   
   try {
     const result = await queue!.add(async () => {
       // Update request status to processing
-      if (typeof entryId === 'number') {
-        const requestIndex = queuedRequests.findIndex(r => r.entryId === entryId);
-        if (requestIndex !== -1) {
-          queuedRequests[requestIndex].status = 'processing';
-        }
+      const requestIndex = queuedRequests.findIndex(r => r === queuedRequest);
+      if (requestIndex !== -1) {
+        queuedRequest.status = 'processing';
+        processingRequests.push(queuedRequest);
+        queuedRequests.splice(requestIndex, 1);
+        console.log('Moved request to processing:', queuedRequest);
+        console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length);
       }
 
       try {
         const response = await request();
-        // Only update entry status if an entryId was provided
-        if (typeof entryId === 'number') {
-          await updateRequestStatus(entryId, 'success');
-          // Remove from queued requests
-          queuedRequests = queuedRequests.filter(r => r.entryId !== entryId);
+        // Update entry status if this is an entry request
+        if (queuedRequest.entryId) {
+          await updateRequestStatus(queuedRequest.entryId, 'success');
         }
+        // Remove from processing requests
+        processingRequests = processingRequests.filter(r => r !== queuedRequest);
+        console.log('Request completed successfully:', queuedRequest);
+        console.log('Request state after completion - Processing:', processingRequests.length);
         return response as T;
       } catch (error) {
-        // Only update entry status if an entryId was provided
-        if (typeof entryId === 'number') {
+        // Update entry status if this is an entry request
+        if (queuedRequest.entryId) {
           const errorInfo = {
             message: error instanceof Error ? error.message : 'Unknown error',
             code: (error as any).code,
             details: (error as any).details
           };
-          await updateRequestStatus(entryId, 'failed', errorInfo);
-          // Remove from queued requests
-          queuedRequests = queuedRequests.filter(r => r.entryId !== entryId);
+          await updateRequestStatus(queuedRequest.entryId, 'failed', errorInfo);
         }
+        // Move from processing to failed requests
+        queuedRequest.status = 'failed';
+        queuedRequest.error = error instanceof Error ? error.message : 'Unknown error';
+        failedRequests.push(queuedRequest);
+        processingRequests = processingRequests.filter(r => r !== queuedRequest);
+        console.log('Request failed:', queuedRequest);
+        console.log('Request state after failure - Processing:', processingRequests.length, 'Failed:', failedRequests.length);
         throw error;
       }
     }, { priority });
 
-    console.log('Request completed. Updated stats:', getQueueStats());
+    const updatedStats = getQueueStats();
+    console.log('Request completed. Updated stats:', updatedStats);
+    console.log('Final request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
     return result as T;
   } catch (error) {
     console.error('Request failed:', error);
@@ -124,11 +186,18 @@ export const enqueueRequest = async <T>(
 
 export const getQueueStats = () => {
   if (!queue) return { size: 0, pending: 0, requests: [] };
+
+  // Include all requests - queued, processing, and failed
+  const allRequests = [...queuedRequests, ...processingRequests, ...failedRequests];
+  console.log('Getting queue stats - Total requests:', allRequests.length);
+  console.log('Queue size:', queue.size);
+  console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
+
   return {
-    size: queue.size,
-    pending: queue.pending,
+    size: queuedRequests.length,  // Only count queued requests in size
+    pending: processingRequests.length,  // Only count processing requests in pending
     concurrency: queue.concurrency,
-    requests: queuedRequests
+    requests: allRequests
   };
 };
 
@@ -137,6 +206,8 @@ export const clearQueue = () => {
     console.log('Clearing queue. Stats before clear:', getQueueStats());
     queue.clear();
     queuedRequests = [];
+    processingRequests = [];
+    failedRequests = [];
     console.log('Queue cleared. New stats:', getQueueStats());
   }
 }; 

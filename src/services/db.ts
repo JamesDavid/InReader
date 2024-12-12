@@ -72,64 +72,31 @@ class ReaderDatabase extends Dexie {
     super('ReaderDatabase');
     
     // Define all fields that need indexing
-    const entriesSchema = '++id, feedId, publishDate, isRead, readDate, isStarred, starredDate, isListened, listenedDate, lastChatDate, aiSummary, chatHistory, requestProcessingStatus';
+    const entriesSchema = '++id, feedId, publishDate, isRead, readDate, isStarred, starredDate, isListened, listenedDate, lastChatDate, aiSummary, chatHistory, requestProcessingStatus, [feedId+link]';
     const feedsSchema = '++id, url, folderId';
     const foldersSchema = '++id, parentId';
     const savedSearchesSchema = '++id, query';
 
-    // Base schema
-    this.version(4).stores({
+    this.version(617).stores({
       feeds: feedsSchema,
       entries: entriesSchema,
       folders: foldersSchema,
       savedSearches: savedSearchesSchema
-    });
-
-    // Add isListened field
-    this.version(5).stores({
-      entries: entriesSchema
-    }).upgrade(tx => {
-      return tx.table('entries').toCollection().modify(entry => {
-        entry.isListened = false;
-      });
-    });
-
-    // Update to match browser version
-    this.version(610).stores({
-      feeds: feedsSchema,
-      entries: entriesSchema,
-      folders: foldersSchema,
-      savedSearches: savedSearchesSchema
-    });
-
-    // Add starredDate field
-    this.version(611).stores({
-      entries: entriesSchema
-    }).upgrade(tx => {
-      return tx.table('entries').toCollection().modify(entry => {
+    }).upgrade(async tx => {
+      // Ensure all existing entries have the required fields
+      await tx.table('entries').toCollection().modify(entry => {
+        if (!entry.requestProcessingStatus) {
+          entry.requestProcessingStatus = 'pending';
+        }
         if (entry.isStarred && !entry.starredDate) {
           entry.starredDate = new Date();
         }
-      });
-    });
-
-    // Add listenedDate field
-    this.version(612).stores({
-      entries: entriesSchema
-    }).upgrade(tx => {
-      return tx.table('entries').toCollection().modify(entry => {
         if (entry.isListened && !entry.listenedDate) {
           entry.listenedDate = new Date();
         }
-      });
-    });
-
-    // Add lastChatDate field
-    this.version(613).stores({
-      entries: entriesSchema
-    }).upgrade(tx => {
-      return tx.table('entries').toCollection().modify(entry => {
-        // For existing entries with chat history, set lastChatDate to the most recent message
+        if (entry.isRead && !entry.readDate) {
+          entry.readDate = new Date();
+        }
         if (entry.chatHistory && entry.chatHistory.length > 0 && !entry.lastChatDate) {
           const latestMessage = entry.chatHistory.reduce((latest: Date, msg: ChatMessage) => 
             msg.timestamp > latest ? msg.timestamp : latest,
@@ -137,38 +104,6 @@ class ReaderDatabase extends Dexie {
           );
           entry.lastChatDate = latestMessage;
         }
-      });
-    });
-
-    // Add readDate field
-    this.version(614).stores({
-      entries: entriesSchema
-    }).upgrade(tx => {
-      return tx.table('entries').toCollection().modify(entry => {
-        // For existing read entries, set readDate to current time
-        if (entry.isRead && !entry.readDate) {
-          entry.readDate = new Date();
-        }
-      });
-    });
-
-    // Add requestProcessingStatus field
-    this.version(615).stores({
-      entries: entriesSchema
-    }).upgrade(tx => {
-      return tx.table('entries').toCollection().modify(entry => {
-        if (!entry.requestProcessingStatus) {
-          entry.requestProcessingStatus = 'pending';
-          entry.lastRequestAttempt = null;
-        }
-      });
-    });
-
-    // Add requestError field
-    this.version(616).stores({
-      entries: entriesSchema
-    }).upgrade(tx => {
-      return tx.table('entries').toCollection().modify(entry => {
         if (entry.requestProcessingStatus === 'failed' && !entry.requestError) {
           entry.requestError = {
             message: 'Unknown error from previous version',
@@ -180,39 +115,97 @@ class ReaderDatabase extends Dexie {
   }
 }
 
-export const db = new ReaderDatabase();
+// Create a singleton instance
+let dbInstance: ReaderDatabase | null = null;
 
+// Function to get or create the database instance
+function getDatabase(): ReaderDatabase {
+  if (!dbInstance) {
+    dbInstance = new ReaderDatabase();
+    
+    // Handle database errors
+    dbInstance.on('blocked', () => {
+      console.warn('Database blocked - another instance needs to upgrade');
+    });
+
+    dbInstance.on('versionchange', event => {
+      console.log('Database version changed:', event);
+      if (dbInstance) {
+        dbInstance.close();
+        dbInstance = null;
+        window.location.reload(); // Reload the page to get a fresh database instance
+      }
+    });
+  }
+  return dbInstance;
+}
+
+// Initialize and export the database instance
+export const db = getDatabase();
+
+// Export database operations with error handling
 export async function addFeed(url: string, title: string, folderId?: number) {
-  return await db.feeds.add({
-    url,
-    title,
-    folderId,
-    lastUpdated: new Date()
-  });
+  try {
+    return await db.feeds.add({
+      url,
+      title,
+      folderId,
+      lastUpdated: new Date()
+    });
+  } catch (error) {
+    console.error('Error adding feed:', error);
+    if (error instanceof Dexie.DatabaseClosedError) {
+      window.location.reload(); // Reload on database closed error
+    }
+    throw error;
+  }
 }
 
 export async function addEntry(entry: Omit<FeedEntry, 'id'>) {
-  // Check if entry already exists
-  const existingEntry = await db.entries
-    .where({ feedId: entry.feedId })
-    .filter(e => e.title === entry.title && e.link === entry.link)
-    .first();
+  try {
+    // Check if entry already exists
+    const existingEntry = await db.entries
+      .where('[feedId+link]')
+      .equals([entry.feedId, entry.link])
+      .first();
 
-  if (!existingEntry) {
-    return await db.entries.add({
-      ...entry,
-      isListened: false,
-      requestProcessingStatus: entry.requestProcessingStatus || 'pending',
-      lastRequestAttempt: entry.lastRequestAttempt || undefined
-    });
+    if (!existingEntry) {
+      return await db.entries.add({
+        ...entry,
+        isListened: false,
+        requestProcessingStatus: entry.requestProcessingStatus || 'pending',
+        lastRequestAttempt: entry.lastRequestAttempt || undefined
+      });
+    }
+    return existingEntry.id;
+  } catch (error) {
+    console.error('Error adding entry:', error);
+    if (error instanceof Dexie.DatabaseClosedError) {
+      window.location.reload();
+    }
+    throw error;
   }
-  return existingEntry.id;
 }
 
+// Add error handling to other database operations
+const withErrorHandling = async <T>(operation: () => Promise<T>): Promise<T> => {
+  try {
+    return await operation();
+  } catch (error) {
+    console.error('Database operation error:', error);
+    if (error instanceof Dexie.DatabaseClosedError) {
+      window.location.reload();
+    }
+    throw error;
+  }
+};
+
 export async function markAsRead(entryId: number) {
-  return await db.entries.update(entryId, { 
-    isRead: true,
-    readDate: new Date()
+  return withErrorHandling(async () => {
+    return await db.entries.update(entryId, { 
+      isRead: true,
+      readDate: new Date()
+    });
   });
 }
 

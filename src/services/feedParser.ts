@@ -1,6 +1,6 @@
 import { addEntry, addFeed, type Feed, type FeedEntry, db } from './db';
 import { enqueueRequest } from './requestQueueService';
-import { processArticle } from './articleService';
+import { fetchArticleContent } from './articleService';
 
 const API_URL = 'http://localhost:3000/api';
 
@@ -57,6 +57,7 @@ export async function addNewFeed(url: string, folderId?: number) {
       if (isNew) {
         entries.push({
           feedId: feedId as number,
+          feedTitle: feed.title || 'Untitled Feed',
           title: item.title,
           content: item.content,
           link: item.link,
@@ -77,7 +78,20 @@ export async function addNewFeed(url: string, folderId?: number) {
         try {
           await enqueueRequest(
             async () => {
-              return true;
+              const entry = await db.entries.get(entryId);
+              if (!entry) {
+                throw new Error('Entry not found');
+              }
+              
+              // Attempt to fetch full article content
+              try {
+                const articleContent = await fetchArticleContent(entry.link);
+                console.log('Successfully fetched article content for:', entry.title);
+                return true;
+              } catch (error) {
+                console.error('Failed to fetch article content:', error);
+                throw error;
+              }
             },
             entryId
           );
@@ -120,6 +134,7 @@ export async function refreshFeed(feed: Feed) {
       if (isNew) {
         newEntries.push({
           feedId: feed.id!,
+          feedTitle: feed.title,
           title: item.title,
           content: item.content,
           link: item.link,
@@ -144,7 +159,20 @@ export async function refreshFeed(feed: Feed) {
         try {
           await enqueueRequest(
             async () => {
-              return true;
+              const entry = await db.entries.get(entryId);
+              if (!entry) {
+                throw new Error('Entry not found');
+              }
+              
+              // Attempt to fetch full article content
+              try {
+                const articleContent = await fetchArticleContent(entry.link);
+                console.log('Successfully fetched article content for:', entry.title);
+                return true;
+              } catch (error) {
+                console.error('Failed to fetch article content:', error);
+                throw error;
+              }
             },
             entryId
           );
@@ -155,6 +183,6 @@ export async function refreshFeed(feed: Feed) {
     }));
   } catch (error) {
     console.error('Error refreshing feed:', error);
-    throw new Error('Failed to refresh feed');
+    throw error;
   }
 } 
