@@ -87,7 +87,7 @@ const Layout: React.FC = () => {
   }, [navigate]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
       if (
         document.activeElement?.tagName === 'INPUT' ||
         document.activeElement?.tagName === 'TEXTAREA' ||
@@ -155,7 +155,21 @@ const Layout: React.FC = () => {
         case '[':
           if (!sidebarFocused) {
             e.preventDefault();
-            ttsService.next();
+            console.log('[ key pressed, selectedFeedIndex:', selectedFeedIndex);
+            const selectedArticle = document.querySelector(`article[data-index="${selectedFeedIndex}"]`);
+            console.log('Found selected article:', selectedArticle);
+            if (selectedArticle) {
+              const entryId = selectedArticle.getAttribute('data-entry-id');
+              console.log('Found entry ID:', entryId);
+              if (entryId) {
+                const entry = await db.entries.get(parseInt(entryId));
+                console.log('Found entry from DB:', entry);
+                if (entry) {
+                  console.log('Adding to TTS queue:', entry.title);
+                  ttsService.addToQueue(entry);
+                }
+              }
+            }
           }
           break;
         case ']':

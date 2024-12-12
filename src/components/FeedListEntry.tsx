@@ -186,15 +186,9 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   return (
     <article
       data-index={index}
-      className={`border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-100'} transition-colors
-        ${entry.isRead ? 'opacity-75' : ''} 
-        ${isDarkMode 
-          ? 'hover:bg-gray-800' 
-          : 'hover:bg-reader-hover'} 
-        ${isFocused && isSelected 
-          ? (isDarkMode ? 'bg-gray-800 ring-2 ring-reader-blue ring-opacity-50' : 'bg-reader-hover ring-2 ring-reader-blue ring-opacity-50') 
-          : ''}`}
+      data-entry-id={entry.id}
       onClick={(e) => {
+        console.log('Article clicked, entry ID:', entry.id);
         if (isChatOpen) return;
         if (e.target instanceof HTMLButtonElement || 
             e.target instanceof HTMLAnchorElement ||
@@ -205,6 +199,14 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
         onSelect(index);
         !isFocused && onFocusChange(true);
       }}
+      className={`border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-100'} transition-colors
+        ${entry.isRead ? 'opacity-75' : ''} 
+        ${isDarkMode 
+          ? 'hover:bg-gray-800' 
+          : 'hover:bg-reader-hover'} 
+        ${isFocused && isSelected 
+          ? (isDarkMode ? 'bg-gray-800 ring-2 ring-reader-blue ring-opacity-50' : 'bg-reader-hover ring-2 ring-reader-blue ring-opacity-50') 
+          : ''}`}
       style={{ cursor: isChatOpen ? 'default' : 'pointer' }}
     >
       <div className="flex items-center px-4 py-2 gap-4">

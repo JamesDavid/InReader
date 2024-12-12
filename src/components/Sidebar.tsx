@@ -301,7 +301,6 @@ const Sidebar: React.FC<SidebarProps> = ({
         onSelectedIndexChange(index);
       }
     }
-    isKeyboardNavRef.current = false;
   }, [location.pathname, visibleItems, selectedIndex, onSelectedIndexChange]);
 
   // Navigation effect
