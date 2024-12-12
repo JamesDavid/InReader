@@ -1,6 +1,13 @@
 import { enqueueRequest } from './requestQueueService';
+import TurndownService from 'turndown';
 
 const API_URL = 'http://localhost:3000/api';
+const turndownService = new TurndownService({
+  headingStyle: 'atx',
+  hr: '---',
+  bulletListMarker: '-',
+  codeBlockStyle: 'fenced'
+});
 
 export interface ArticleContent {
   content: string;
@@ -12,7 +19,7 @@ interface ArticleError extends Error {
   details?: string;
 }
 
-export async function fetchArticleContent(url: string): Promise<ArticleContent> {
+export async function fetchArticleContent(url: string, entryId?: number): Promise<ArticleContent> {
   return enqueueRequest(async () => {
     try {
       console.log('Fetching article content for:', url);
@@ -62,22 +69,28 @@ export async function fetchArticleContent(url: string): Promise<ArticleContent> 
         throw error;
       }
 
+      // Convert HTML to Markdown
+      const markdown = turndownService.turndown(data.content);
+
       // Clean up the content - remove extra whitespace, normalize line endings
-      data.content = data.content
+      const cleanedMarkdown = markdown
         .replace(/\r\n/g, '\n')
         .replace(/\n{3,}/g, '\n\n')
         .trim();
 
       // If the content is too short, it might not be the full article
-      if (data.content.length < 500) {
+      if (cleanedMarkdown.length < 500) {
         const error = new Error('Article content seems incomplete - might be hitting a paywall or content restriction') as ArticleError;
         error.code = 'SHORT_CONTENT';
-        error.details = `Content length: ${data.content.length} characters`;
+        error.details = `Content length: ${cleanedMarkdown.length} characters`;
         throw error;
       }
 
-      console.log('Successfully fetched article content, length:', data.content.length);
-      return data;
+      console.log('Successfully fetched and converted article content, length:', cleanedMarkdown.length);
+      return {
+        content: cleanedMarkdown,
+        isFullContent: true
+      };
     } catch (error) {
       console.error('Error fetching article:', error);
       // Ensure we're always throwing an ArticleError
@@ -96,5 +109,5 @@ export async function fetchArticleContent(url: string): Promise<ArticleContent> 
       genericError.code = 'UNKNOWN';
       throw genericError;
     }
-  });
+  }, entryId);
 } 

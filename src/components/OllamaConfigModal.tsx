@@ -453,33 +453,39 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
                     {queueStats.requests.length > 0 && (
                       <div className={`mt-3 border-t ${isDarkMode ? 'border-gray-600' : 'border-gray-200'}`}>
                         <div className="mt-3 max-h-48 overflow-y-auto space-y-2">
-                          {queueStats.requests.map((request) => (
-                            <div 
-                              key={request.entryId}
-                              className={`p-2 rounded ${
-                                request.status === 'processing' 
-                                  ? (isDarkMode ? 'bg-blue-900/30' : 'bg-blue-50')
-                                  : request.status === 'failed'
-                                  ? (isDarkMode ? 'bg-red-900/30' : 'bg-red-50')
-                                  : (isDarkMode ? 'bg-gray-800' : 'bg-white')
-                              }`}
-                            >
-                              <div className={`font-medium text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-                                {request.entryTitle || 'Unknown Entry'}
+                          {[...queueStats.requests]
+                            .map(request => ({
+                              ...request,
+                              addedAt: request.addedAt ? new Date(request.addedAt) : new Date()
+                            }))
+                            .sort((a, b) => b.addedAt.getTime() - a.addedAt.getTime())
+                            .map((request) => (
+                              <div 
+                                key={`${request.entryId}-${request.addedAt.getTime()}`}
+                                className={`p-2 rounded ${
+                                  request.status === 'processing' 
+                                    ? (isDarkMode ? 'bg-blue-900/30' : 'bg-blue-50')
+                                    : request.status === 'failed'
+                                    ? (isDarkMode ? 'bg-red-900/30' : 'bg-red-50')
+                                    : (isDarkMode ? 'bg-gray-800' : 'bg-white')
+                                }`}
+                              >
+                                <div className={`font-medium text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                                  {request.entryTitle || 'Unknown Entry'}
+                                </div>
+                                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {request.feedTitle || 'Unknown Feed'} • {request.status}
+                                  {request.status === 'processing' && (
+                                    <span className="ml-1">• Fetching article content...</span>
+                                  )}
+                                  {request.error && (
+                                    <span className={isDarkMode ? 'text-red-400' : 'text-red-500'}>
+                                      {' • '}{request.error}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                              <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                                {request.feedTitle || 'Unknown Feed'} • {request.status}
-                                {request.status === 'processing' && (
-                                  <span className="ml-1">• Fetching article content...</span>
-                                )}
-                                {request.error && (
-                                  <span className={isDarkMode ? 'text-red-400' : 'text-red-500'}>
-                                    {' • '}{request.error}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
+                            ))}
                         </div>
                       </div>
                     )}

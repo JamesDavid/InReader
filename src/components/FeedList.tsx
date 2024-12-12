@@ -1,14 +1,12 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useLocation, useOutletContext, useSearchParams } from 'react-router-dom';
 import { getFeedEntries, getAllEntries, getStarredEntries, getListenedEntries, getFeedsByFolder, markAsRead, toggleStar, type FeedEntry, db } from '../services/db';
-import { generateSummary, loadOllamaConfig } from '../services/ollamaService';
-import { fetchArticleContent } from '../services/articleService';
-import { refreshFeed } from '../services/feedParser';
 import ChatModal from './ChatModal';
 import ttsService from '../services/ttsService';
 import FeedListEntry from './FeedListEntry';
 import { PaginationService, PaginationState } from '../services/paginationService';
 import { Pagination } from './Pagination';
+import { refreshFeed } from '../services/feedParser';
 
 interface ContextType {
   isFocused: boolean;
@@ -27,13 +25,6 @@ interface FeedListProps {
   onEntriesUpdate?: (entries: FeedEntry[]) => void;
 }
 
-interface SummaryState {
-  content: string;
-  isFullContent: boolean;
-  model?: string;
-  isLoading?: boolean;
-}
-
 const FeedList: React.FC<FeedListProps> = (props) => {
   const context = useOutletContext<ContextType>();
   const isDarkMode = props.isDarkMode ?? context.isDarkMode;
@@ -44,7 +35,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const onSelectedIndexChange = context.onSelectedIndexChange;
 
   const [entries, setEntries] = useState<FeedEntry[]>([]);
-  const [summaryStates, setSummaryStates] = useState<{ [key: number]: SummaryState }>({});
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatEntry, setChatEntry] = useState<FeedEntry | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -197,43 +187,12 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       if (feedId) {
         const feed = await db.feeds.get(parseInt(feedId));
         if (feed) {
-          // Get all entries for this feed that have failed processing
-          const entries = await db.entries
-            .where('feedId')
-            .equals(parseInt(feedId))
-            .filter(entry => entry.requestProcessingStatus === 'failed')
-            .toArray();
-
-          // Reset their status to pending so they can be retried
-          await Promise.all(entries.map(entry => 
-            db.entries.update(entry.id!, { 
-              requestProcessingStatus: 'pending',
-              lastRequestAttempt: null 
-            })
-          ));
-
           await refreshFeed(feed);
           const loadedEntries = await getFeedEntries(parseInt(feedId));
           setEntries(loadedEntries);
         }
       } else if (folderId) {
         const folderFeeds = await getFeedsByFolder(parseInt(folderId));
-        
-        // Get all failed entries for feeds in this folder
-        const failedEntries = await db.entries
-          .where('feedId')
-          .anyOf(folderFeeds.map(f => f.id!))
-          .filter(entry => entry.requestProcessingStatus === 'failed')
-          .toArray();
-
-        // Reset their status to pending
-        await Promise.all(failedEntries.map(entry => 
-          db.entries.update(entry.id!, { 
-            requestProcessingStatus: 'pending',
-            lastRequestAttempt: null 
-          })
-        ));
-
         await Promise.all(folderFeeds.map(feed => refreshFeed(feed)));
         const entriesPromises = folderFeeds.map(feed => getFeedEntries(feed.id!));
         const feedEntries = await Promise.all(entriesPromises);
@@ -324,111 +283,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     }, 2000); // 2 second dwell time
   }, [entries, props.onEntriesUpdate]);
 
-  const generateAISummary = async (entry: FeedEntry) => {
-    if (!entry.id || entry.aiSummary) return;
-
-    const config = loadOllamaConfig();
-    if (!config) return;
-
-    setSummaryStates(prev => ({ 
-      ...prev, 
-      [entry.id!]: {
-        content: 'Fetching full article and generating summary...',
-        isFullContent: false,
-        model: config.summaryModel,
-        isLoading: true
-      }
-    }));
-
-    try {
-      console.log('Attempting to fetch full article content for:', entry.link);
-      const articleContent = await fetchArticleContent(entry.link);
-      let finalContent = entry.content;
-      let isFullContent = false;
-
-      if (articleContent && articleContent.content.length > entry.content.length * 1.5) {
-        console.log('Successfully fetched longer article content');
-        finalContent = articleContent.content;
-        isFullContent = true;
-      } else {
-        console.log('Fetched content was not substantially longer than RSS content');
-      }
-
-      setSummaryStates(prev => ({ 
-        ...prev, 
-        [entry.id!]: {
-          content: 'Generating summary...',
-          isFullContent,
-          model: config.summaryModel,
-          isLoading: true
-        }
-      }));
-
-      const summary = await generateSummary(finalContent, entry.link, config);
-      
-      // Update the entry in the database with the summary
-      if (entry.id) {
-        await db.entries.update(entry.id, {
-          aiSummary: summary,
-          aiSummaryMetadata: {
-            isFullContent,
-            model: config.summaryModel
-          }
-        });
-
-        // Update the local state
-        setSummaryStates(prev => ({ 
-          ...prev, 
-          [entry.id!]: {
-            content: summary,
-            isFullContent,
-            model: config.summaryModel,
-            isLoading: false
-          }
-        }));
-
-        // Update entries state while preserving the current view
-        setEntries(prevEntries => 
-          prevEntries.map(e => 
-            e.id === entry.id ? {
-              ...e,
-              aiSummary: summary,
-              aiSummaryMetadata: {
-                isFullContent,
-                model: config.summaryModel
-              }
-            } : e
-          )
-        );
-      }
-    } catch (error) {
-      console.error('Failed to generate summary:', error);
-      if (entry.id) {
-        setSummaryStates(prev => ({ 
-          ...prev, 
-          [entry.id!]: {
-            content: 'Failed to generate summary',
-            isFullContent: false,
-            model: config.summaryModel,
-            isLoading: false
-          }
-        }));
-      }
-    }
-  };
-
-  useEffect(() => {
-    // Check for entries without summaries and generate them
-    const config = loadOllamaConfig();
-    if (!config) return;
-
-    entries.forEach(entry => {
-      if (!entry.aiSummary && !summaryStates[entry.id!]) {
-        generateAISummary(entry);
-      }
-    });
-  }, [entries]);
-
   const getExcerpt = (content: string) => {
     const div = document.createElement('div');
     div.innerHTML = content;
@@ -464,37 +318,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     prose-code:text-blue-500 prose-code:bg-gray-100 prose-code:rounded prose-code:px-1
     prose-a:text-blue-500 hover:prose-a:text-blue-600
     ${isDarkMode ? 'prose-code:bg-gray-700' : ''}`;
-
-  const handleRefreshSummary = async (entry: FeedEntry) => {
-    if (!entry.id) return;
-
-    // Clear existing summary
-    await db.entries.update(entry.id, {
-      aiSummary: null,
-      aiSummaryMetadata: null
-    });
-
-    // Update local state to show loading
-    setSummaryStates(prev => ({
-      ...prev,
-      [entry.id!]: {
-        ...prev[entry.id!],
-        content: 'Refreshing summary...',
-        isLoading: true
-      }
-    }));
-
-    // Generate new summary
-    await generateAISummary(entry);
-  };
-
-  const hasChatHistory = (entry: FeedEntry) => {
-    if (!entry.chatHistory || entry.chatHistory.length === 0) return false;
-    // Only count entries that have at least one user message and one assistant message
-    const hasUserMessage = entry.chatHistory.some(msg => msg.role === 'user');
-    const hasAssistantMessage = entry.chatHistory.some(msg => msg.role === 'assistant');
-    return hasUserMessage && hasAssistantMessage;
-  };
 
   const getPreviewContent = (content: string, expanded: boolean) => {
     const contentLength = getContentLength(content);
@@ -601,13 +424,11 @@ const FeedList: React.FC<FeedListProps> = (props) => {
                 isDarkMode={isDarkMode}
                 isChatOpen={isChatOpen}
                 isExpanded={expandedEntries[entry.id!] || false}
-                summaryState={summaryStates[entry.id!]}
                 onSelect={onSelectedIndexChange}
                 onFocusChange={onFocusChange}
                 onMarkAsRead={handleMarkAsRead}
                 onToggleStar={handleToggleStar}
                 onToggleExpand={toggleExpanded}
-                onRefreshSummary={handleRefreshSummary}
                 onContentView={handleContentView}
                 onContentLeave={(entryId) => {
                   if (readTimerRef.current[entryId]) {

@@ -55,33 +55,22 @@ export const generateSummary = async (
   content: string,
   url: string,
   config: OllamaConfig,
-  onToken?: (token: string) => void
+  onToken?: (token: string) => void,
+  entryId?: number
 ): Promise<string> => {
   return enqueueRequest(async () => {
     try {
-      // Move article fetching outside the queue to parallelize operations
-      const articleContentPromise = fetchArticleContent(url).catch(error => {
-        console.warn('Failed to fetch full article content, using RSS content instead:', error);
-        return null;
-      });
-
       // Use requestAnimationFrame for UI updates
       const safeOnToken = onToken ? (token: string) => {
         requestAnimationFrame(() => onToken(token));
       } : undefined;
-
-      // Wait for article content in parallel
-      const articleContent = await articleContentPromise;
-      const fullContent = articleContent && articleContent.length > content.length 
-        ? articleContent 
-        : content;
 
       const response = await fetch(`${config.serverUrl}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: config.summaryModel,
-          prompt: fullContent,
+          prompt: content,
           system: config.summarySystemPrompt,
           stream: Boolean(safeOnToken)
         })
@@ -122,5 +111,5 @@ export const generateSummary = async (
       console.error('Failed to generate summary:', error);
       throw error;
     }
-  });
+  }, entryId);
 }; 
