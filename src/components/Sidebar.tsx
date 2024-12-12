@@ -24,6 +24,15 @@ import SidebarFeedItem from './sidebar/SidebarFeedItem';
 import SidebarHeader from './sidebar/SidebarHeader';
 import SidebarFeedFolder from './sidebar/SidebarFeedFolder';
 
+interface NavigationItem {
+  id?: string | number;
+  path: string;
+  title: string;
+  isFolder?: boolean;
+  unreadCount?: number;
+  onDelete?: () => Promise<void>;
+}
+
 interface SidebarProps {
   className?: string;
   isFocused: boolean;

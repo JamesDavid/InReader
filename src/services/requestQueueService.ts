@@ -97,7 +97,7 @@ export const enqueueRequest = async <T>(
           // Remove from queued requests
           queuedRequests = queuedRequests.filter(r => r.entryId !== entryId);
         }
-        return response;
+        return response as T;
       } catch (error) {
         // Only update entry status if an entryId was provided
         if (typeof entryId === 'number') {
@@ -115,7 +115,7 @@ export const enqueueRequest = async <T>(
     }, { priority });
 
     console.log('Request completed. Updated stats:', getQueueStats());
-    return result;
+    return result as T;
   } catch (error) {
     console.error('Request failed:', error);
     throw error;

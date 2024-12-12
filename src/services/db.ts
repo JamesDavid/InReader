@@ -7,6 +7,7 @@ interface Feed {
   folderId?: number;
   lastUpdated?: Date;
   order?: number;
+  unreadCount?: number;
 }
 
 interface FeedEntry {
@@ -202,7 +203,7 @@ export async function addEntry(entry: Omit<FeedEntry, 'id'>) {
       ...entry,
       isListened: false,
       requestProcessingStatus: entry.requestProcessingStatus || 'pending',
-      lastRequestAttempt: entry.lastRequestAttempt || null
+      lastRequestAttempt: entry.lastRequestAttempt || undefined
     });
   }
   return existingEntry.id;
@@ -235,7 +236,7 @@ export async function toggleStar(entryId: number) {
 
 export async function getFeedsByFolder(folderId?: number | null) {
   if (folderId === undefined || folderId === null) {
-    return await db.feeds.where('folderId').equals(null).toArray();
+    return await db.feeds.where('folderId').equals(undefined).toArray();
   }
   return await db.feeds.where('folderId').equals(folderId).toArray();
 }
@@ -249,13 +250,19 @@ export async function getUnreadEntries(feedId?: number) {
 }
 
 async function addFeedTitleToEntries(entries: FeedEntry[]): Promise<FeedEntry[]> {
-  const feedIds = [...new Set(entries.map(entry => entry.feedId))];
-  const feeds = await db.feeds.where('id').anyOf(feedIds).toArray();
+  const feedIds = [...new Set(entries
+    .map(entry => entry.feedId)
+    .filter((id): id is number => id != null))];
+  
+  const feeds = feedIds.length > 0 
+    ? await db.feeds.where('id').anyOf(feedIds).toArray()
+    : [];
+    
   const feedMap = new Map(feeds.map(feed => [feed.id, feed.title]));
   
   return entries.map(entry => ({
     ...entry,
-    feedTitle: feedMap.get(entry.feedId),
+    feedTitle: entry.feedId ? feedMap.get(entry.feedId) : undefined,
     publishDate: new Date(entry.publishDate),
     readDate: entry.readDate ? new Date(entry.readDate) : undefined,
     starredDate: entry.starredDate ? new Date(entry.starredDate) : undefined,
@@ -301,7 +308,7 @@ export async function getStarredEntries() {
 
 export async function getListenedEntries() {
   const entries = await db.entries
-    .filter(entry => entry.isListened)
+    .filter(entry => entry.isListened === true)
     .toArray();
   return addFeedTitleToEntries(entries);
 }
