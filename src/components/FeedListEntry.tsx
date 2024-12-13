@@ -161,7 +161,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
         <div style="font-size: 14px; color: #666; margin-bottom: 8px;">Published: ${formatDateForCopy(new Date(entry.publishDate))}</div>
         <a href="${entry.link}" style="color: #2563eb; text-decoration: none; font-size: 14px; margin-bottom: 16px; display: inline-block;">${entry.link}</a>
         
-        ${entry.aiSummary ? `
+        ${entry.content_aiSummary ? `
           <div style="margin-top: 24px;">
             <h2 style="font-size: 18px; margin-bottom: 16px; color: #374151;">
               Summary ${entry.aiSummaryMetadata?.model ? 
@@ -172,7 +172,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                 ''}:
             </h2>
             <div style="font-size: 16px; color: #374151; background: #f9fafb; padding: 16px; border-radius: 6px; border: 1px solid #e5e7eb;">
-              ${formatContent(entry.aiSummary)}
+              ${formatContent(entry.content_aiSummary)}
             </div>
           </div>
         ` : ''}
@@ -186,7 +186,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
             entry.aiSummaryMetadata.isFullContent ? 'Full article' : 'RSS preview'
           })`
         : ''
-    }:\n\n${entry.aiSummary || ''}`;
+    }:\n\n${entry.content_aiSummary || ''}`;
 
     return { html: htmlContent.trim(), text: plainText };
   };
@@ -300,10 +300,10 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
         >
           <div className={markdownClass}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {getPreviewContent(entry.content, isExpanded)}
+              {getPreviewContent(entry.content_fullArticle || entry.content_rssAbstract, isExpanded)}
             </ReactMarkdown>
           </div>
-          {entry.aiSummary && (
+          {entry.content_aiSummary && (
             <div className={`mt-4 p-4 rounded ${isDarkMode ? 'bg-gray-800' : 'bg-gray-50'}`}>
               <div className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                 Summary {entry.aiSummaryMetadata?.model && (
@@ -314,12 +314,12 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
               </div>
               <div className={markdownClass}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {entry.aiSummary}
+                  {entry.content_aiSummary}
                 </ReactMarkdown>
               </div>
             </div>
           )}
-          {getContentLength(entry.content) > 600 && (
+          {getContentLength(entry.content_fullArticle || entry.content_rssAbstract) > 600 && (
             <button
               onClick={() => onToggleExpand(entry.id!)}
               className={`mt-2 text-sm ${

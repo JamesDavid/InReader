@@ -15,7 +15,9 @@ interface FeedEntry {
   feedId: number;
   feedTitle?: string;
   title: string;
-  content: string;
+  content_rssAbstract: string;
+  content_fullArticle?: string;
+  content_aiSummary?: string;
   link: string;
   publishDate: Date;
   isRead: boolean;
@@ -25,7 +27,6 @@ interface FeedEntry {
   isListened?: boolean;
   listenedDate?: Date;
   lastChatDate?: Date;
-  aiSummary?: string;
   aiSummaryMetadata?: {
     isFullContent: boolean;
     model: string;
@@ -72,12 +73,12 @@ class ReaderDatabase extends Dexie {
     super('ReaderDatabase');
     
     // Define all fields that need indexing
-    const entriesSchema = '++id, feedId, publishDate, isRead, readDate, isStarred, starredDate, isListened, listenedDate, lastChatDate, aiSummary, chatHistory, requestProcessingStatus, [feedId+link]';
+    const entriesSchema = '++id, feedId, publishDate, isRead, readDate, isStarred, starredDate, isListened, listenedDate, lastChatDate, content_aiSummary, chatHistory, requestProcessingStatus, [feedId+link]';
     const feedsSchema = '++id, url, folderId';
     const foldersSchema = '++id, parentId';
     const savedSearchesSchema = '++id, query';
 
-    this.version(617).stores({
+    this.version(6200).stores({
       feeds: feedsSchema,
       entries: entriesSchema,
       folders: foldersSchema,
@@ -85,6 +86,20 @@ class ReaderDatabase extends Dexie {
     }).upgrade(async tx => {
       // Ensure all existing entries have the required fields
       await tx.table('entries').toCollection().modify(entry => {
+        // Migrate content fields
+        if (!entry.content_rssAbstract) {
+          entry.content_rssAbstract = entry.content || '';
+        }
+        if (!entry.content_fullArticle && entry.content && entry.content !== entry.content_rssAbstract) {
+          entry.content_fullArticle = entry.content;
+        }
+        if (!entry.content_aiSummary && entry.aiSummary) {
+          entry.content_aiSummary = entry.aiSummary;
+        }
+        delete entry.content;
+        delete entry.aiSummary;
+
+        // Handle other fields
         if (!entry.requestProcessingStatus) {
           entry.requestProcessingStatus = 'pending';
         }
@@ -109,6 +124,11 @@ class ReaderDatabase extends Dexie {
             message: 'Unknown error from previous version',
             code: 'UNKNOWN'
           };
+        }
+        // Reset processing status for entries that were stuck
+        if (entry.requestProcessingStatus === 'processing') {
+          entry.requestProcessingStatus = 'pending';
+          entry.lastRequestAttempt = null;
         }
       });
     });
@@ -325,8 +345,9 @@ export async function searchEntries(query: string) {
     .filter(entry => {
       const content = (
         entry.title + ' ' + 
-        entry.content + ' ' + 
-        (entry.aiSummary || '')
+        entry.content_rssAbstract + ' ' + 
+        (entry.content_fullArticle || '') + ' ' + 
+        (entry.content_aiSummary || '')
       ).toLowerCase();
       return searchTerms.every(term => content.includes(term));
     })

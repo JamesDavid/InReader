@@ -35,17 +35,18 @@ async function processEntry(entryId: number) {
 
   try {
     // Check if entry is already being processed
-    if (entry.requestProcessingStatus === 'pending') {
+    if (entry.requestProcessingStatus === 'pending' && entry.lastRequestAttempt) {
       console.log('Entry is already being processed:', entry.title);
       return;
     }
 
-    // Update status to processing before starting
+    // Update status to pending before starting
     await db.entries.update(entryId, {
       requestProcessingStatus: 'pending',
       lastRequestAttempt: new Date(),
       requestError: undefined,
-      aiSummary: undefined,
+      content_aiSummary: undefined,
+      content_fullArticle: undefined,
       aiSummaryMetadata: undefined
     });
 
@@ -56,17 +57,27 @@ async function processEntry(entryId: number) {
 
     // Update entry with fetched content
     await db.entries.update(entryId, {
-      content: articleContent.content
+      content_fullArticle: articleContent.content
     });
 
-    // Step 2: Generate AI summary
+    // Step 2: Generate AI summary if Ollama is configured
     console.log('Loading Ollama config for:', entry.title);
     const config = loadOllamaConfig();
-    if (!config) {
-      throw new Error('Ollama config not found');
+    if (!config || !config.serverUrl || !config.summaryModel) {
+      console.log('Ollama not configured, skipping summary generation for:', entry.title);
+      await db.entries.update(entryId, {
+        requestProcessingStatus: 'failed',
+        lastRequestAttempt: new Date(),
+        requestError: {
+          message: 'Ollama not configured - please configure Ollama settings first',
+          code: 'NO_CONFIG',
+          details: 'Open settings to configure Ollama server and models'
+        }
+      });
+      return;
     }
 
-    console.log('Generating summary for:', entry.title);
+    console.log('Generating summary for:', entry.title, 'using model:', config.summaryModel);
     const summary = await generateSummary(
       articleContent.content,
       entry.link,
@@ -78,14 +89,15 @@ async function processEntry(entryId: number) {
 
     // Update entry with summary
     await db.entries.update(entryId, {
-      aiSummary: summary,
+      content_aiSummary: summary,
       aiSummaryMetadata: {
         isFullContent: articleContent.isFullContent,
         model: config.summaryModel,
         contentLength: articleContent.content.length
       },
       requestProcessingStatus: 'success',
-      lastRequestAttempt: new Date()
+      lastRequestAttempt: new Date(),
+      requestError: undefined
     });
 
     return true;
@@ -135,7 +147,7 @@ async function processNewEntries(feedId: number, feedTitle: string, items: Parse
         feedId,
         feedTitle,
         title: item.title,
-        content: item.content,
+        content_rssAbstract: item.content,
         link: item.link,
         publishDate: new Date(item.pubDate),
         isRead: false,
@@ -144,7 +156,7 @@ async function processNewEntries(feedId: number, feedTitle: string, items: Parse
         isListened: false,
         lastRequestAttempt: undefined,
         requestError: undefined,
-        aiSummary: undefined,
+        content_aiSummary: undefined,
         aiSummaryMetadata: undefined
       });
     }
@@ -172,12 +184,19 @@ export async function reprocessEntry(entryId: number) {
       throw new Error('Entry not found');
     }
 
+    // Check if Ollama is configured
+    const config = loadOllamaConfig();
+    if (!config || !config.serverUrl || !config.summaryModel) {
+      throw new Error('Ollama not configured - please configure Ollama settings first');
+    }
+
     // Reset the entry's processing status and clear previous results
     await db.entries.update(entryId, {
       requestProcessingStatus: 'pending',
       lastRequestAttempt: null,
       requestError: null,
-      aiSummary: null,
+      content_aiSummary: null,
+      content_fullArticle: null,
       aiSummaryMetadata: null
     });
 
@@ -210,7 +229,9 @@ export async function addNewFeed(url: string, folderId?: number) {
     const feed = await parseFeed(url);
     const feedId = await addFeed(url, feed.title || 'Untitled Feed', folderId);
     
-    await processNewEntries(feedId as number, feed.title || 'Untitled Feed', feed.items);
+    // Process entries in the background
+    processNewEntries(feedId as number, feed.title || 'Untitled Feed', feed.items)
+      .catch(error => console.error('Error processing new entries:', error));
     
     return feedId;
   } catch (error) {

@@ -205,9 +205,17 @@ class TTSService {
       source = feed?.title;
     }
 
+    // Determine which content to use, preferring full article over RSS abstract
+    let content = '';
+    if (entry.content_fullArticle) {
+      content = entry.content_fullArticle;
+    } else if (entry.content_rssAbstract) {
+      content = entry.content_rssAbstract;
+    }
+
     // Clean the content and summary for better readability
-    const cleanContent = this.cleanTextForSpeech(entry.content);
-    const cleanSummary = entry.aiSummary ? this.cleanTextForSpeech(entry.aiSummary) : undefined;
+    const cleanContent = this.cleanTextForSpeech(content);
+    const cleanSummary = entry.content_aiSummary ? this.cleanTextForSpeech(entry.content_aiSummary) : undefined;
 
     const article: QueuedArticle = {
       id: entry.id,
