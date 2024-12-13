@@ -5,6 +5,7 @@ import Header from './Header';
 import ttsService from '../services/ttsService';
 import { getSavedSearches, deleteSavedSearch, type SavedSearch, db } from '../services/db';
 import AddFeedModal from './AddFeedModal';
+import ChatModal from './ChatModal';
 
 interface OutletContextType {
   isFocused: boolean;
@@ -14,6 +15,9 @@ interface OutletContextType {
   onSearchHistoryUpdate: () => void;
   selectedIndex: number;
   onSelectedIndexChange: (index: number) => void;
+  onSelectedEntryIdChange: (id: number | null) => void;
+  selectedEntryId: number | null;
+  onOpenChat: (entry: FeedEntry) => void;
 }
 
 const Layout: React.FC = () => {
@@ -21,6 +25,7 @@ const Layout: React.FC = () => {
   const [sidebarFocused, setSidebarFocused] = useState(true);
   const [selectedSidebarIndex, setSelectedSidebarIndex] = useState(0);
   const [selectedFeedIndex, setSelectedFeedIndex] = useState(0);
+  const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved ? JSON.parse(saved) : false;
@@ -31,6 +36,8 @@ const Layout: React.FC = () => {
   });
   const [searchHistory, setSearchHistory] = useState<SavedSearch[]>([]);
   const [showAddFeedModal, setShowAddFeedModal] = useState(false);
+  const [showChatModal, setShowChatModal] = useState(false);
+  const [selectedEntry, setSelectedEntry] = useState<FeedEntry | null>(null);
 
   // Create a ref to store the focusSearch callback from Header
   const [focusSearchCallback, setFocusSearchCallback] = useState<(() => void) | null>(null);
@@ -110,8 +117,13 @@ const Layout: React.FC = () => {
               setSelectedFeedIndex(prev => {
                 const nextIndex = prev + 1;
                 if (nextIndex >= maxItems) {
-                  // TODO: Handle pagination if needed
                   return prev;
+                }
+                // Update the selected entry ID when changing index
+                const nextArticle = document.querySelector(`article[data-index="${nextIndex}"]`);
+                const nextEntryId = nextArticle?.getAttribute('data-entry-id');
+                if (nextEntryId) {
+                  setSelectedEntryId(parseInt(nextEntryId));
                 }
                 return nextIndex;
               });
@@ -124,7 +136,16 @@ const Layout: React.FC = () => {
           if (sidebarFocused) {
             setSelectedSidebarIndex(prev => Math.max(0, prev - 1));
           } else {
-            setSelectedFeedIndex(prev => Math.max(0, prev - 1));
+            setSelectedFeedIndex(prev => {
+              const nextIndex = Math.max(0, prev - 1);
+              // Update the selected entry ID when changing index
+              const nextArticle = document.querySelector(`article[data-index="${nextIndex}"]`);
+              const nextEntryId = nextArticle?.getAttribute('data-entry-id');
+              if (nextEntryId) {
+                setSelectedEntryId(parseInt(nextEntryId));
+              }
+              return nextIndex;
+            });
           }
           break;
         }
@@ -135,9 +156,17 @@ const Layout: React.FC = () => {
           }
           break;
         case 'l':
+          e.preventDefault();
           if (sidebarFocused) {
-            e.preventDefault();
             setSidebarFocused(false);
+          } else if (selectedEntryId !== null) {
+            const entry = await db.entries.get(selectedEntryId);
+            if (entry) {
+              setSelectedEntry(entry);
+              setShowChatModal(true);
+              // Mark as read when opening
+              db.entries.update(selectedEntryId, { isRead: true });
+            }
           }
           break;
         case 'a':
@@ -153,22 +182,12 @@ const Layout: React.FC = () => {
           refreshFeedsCallback?.();
           break;
         case '[':
-          if (!sidebarFocused) {
+          if (!sidebarFocused && selectedEntryId !== null) {
             e.preventDefault();
-            console.log('[ key pressed, selectedFeedIndex:', selectedFeedIndex);
-            const selectedArticle = document.querySelector(`article[data-index="${selectedFeedIndex}"]`);
-            console.log('Found selected article:', selectedArticle);
-            if (selectedArticle) {
-              const entryId = selectedArticle.getAttribute('data-entry-id');
-              console.log('Found entry ID:', entryId);
-              if (entryId) {
-                const entry = await db.entries.get(parseInt(entryId));
-                console.log('Found entry from DB:', entry);
-                if (entry) {
-                  console.log('Adding to TTS queue:', entry.title);
-                  ttsService.addToQueue(entry);
-                }
-              }
+            const entry = await db.entries.get(selectedEntryId);
+            if (entry) {
+              console.log('Adding to TTS queue:', entry.title);
+              ttsService.addToQueue(entry);
             }
           }
           break;
@@ -188,6 +207,30 @@ const Layout: React.FC = () => {
           e.preventDefault();
           handlePopToCurrentItem();
           break;
+        case 'i':
+          if (!sidebarFocused && selectedEntryId !== null) {
+            e.preventDefault();
+            await db.transaction('rw', db.entries, async () => {
+              const entry = await db.entries.get(selectedEntryId);
+              if (entry) {
+                const newStarredState = !entry.isStarred;
+                // Update the database
+                await db.entries.update(selectedEntryId, {
+                  isStarred: newStarredState,
+                  starredDate: newStarredState ? new Date() : undefined
+                });
+                // Dispatch a custom event with the new state for immediate UI update
+                window.dispatchEvent(new CustomEvent('entryStarredChanged', {
+                  detail: { 
+                    entryId: selectedEntryId,
+                    isStarred: newStarredState,
+                    starredDate: newStarredState ? new Date() : undefined
+                  }
+                }));
+              }
+            });
+          }
+          break;
       }
     };
 
@@ -199,7 +242,8 @@ const Layout: React.FC = () => {
     refreshFeedsCallback,
     handlePopToCurrentItem,
     setSelectedSidebarIndex,
-    setSelectedFeedIndex
+    setSelectedFeedIndex,
+    selectedEntryId
   ]);
 
   useEffect(() => {
@@ -219,6 +263,11 @@ const Layout: React.FC = () => {
     setSidebarFocused(!focused);
   };
 
+  const handleOpenChat = (entry: FeedEntry) => {
+    setSelectedEntry(entry);
+    setShowChatModal(true);
+  };
+
   const outletContext: OutletContextType = {
     isFocused: !sidebarFocused,
     isDarkMode,
@@ -226,7 +275,10 @@ const Layout: React.FC = () => {
     onFocusChange: handleFocusChange,
     onSearchHistoryUpdate: loadSearchHistory,
     selectedIndex: selectedFeedIndex,
-    onSelectedIndexChange: setSelectedFeedIndex
+    onSelectedIndexChange: setSelectedFeedIndex,
+    onSelectedEntryIdChange: setSelectedEntryId,
+    selectedEntryId,
+    onOpenChat: handleOpenChat
   };
 
   return (
@@ -272,6 +324,20 @@ const Layout: React.FC = () => {
           onClose={() => setShowAddFeedModal(false)}
           isDarkMode={isDarkMode}
           onSuccess={() => refreshFeedsCallback?.()}
+        />
+      )}
+      {showChatModal && selectedEntry && (
+        <ChatModal
+          isOpen={showChatModal}
+          onClose={() => setShowChatModal(false)}
+          isDarkMode={isDarkMode}
+          articleTitle={selectedEntry.title}
+          articleContent={selectedEntry.content_rssAbstract}
+          articleUrl={selectedEntry.link}
+          entryId={selectedEntry.id!}
+          onChatUpdate={() => {
+            // Handle chat updates if needed
+          }}
         />
       )}
     </div>

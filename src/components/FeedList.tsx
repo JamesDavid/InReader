@@ -15,6 +15,8 @@ interface ContextType {
   onFocusChange: (focused: boolean) => void;
   selectedIndex: number;
   onSelectedIndexChange: (index: number) => void;
+  selectedEntryId: number | null;
+  onSelectedEntryIdChange: (id: number | null) => void;
 }
 
 interface FeedListProps {
@@ -65,7 +67,17 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     paginationService.setItems(filteredEntries);
     const newState = paginationService.getState(currentPage);
     setPaginatedState(newState);
-  }, [currentPage, filteredEntries]);
+
+    // Update selected entry ID when entries change
+    if (newState.items.length > 0 && selectedIndex < newState.items.length) {
+      const currentEntry = newState.items[selectedIndex];
+      if (currentEntry?.id !== context.selectedEntryId) {
+        context.onSelectedEntryIdChange(currentEntry?.id || null);
+      }
+    } else if (newState.items.length === 0) {
+      context.onSelectedEntryIdChange(null);
+    }
+  }, [currentPage, filteredEntries, selectedIndex, context.selectedEntryId]);
 
   // Ensure selection is within bounds
   useEffect(() => {
@@ -255,7 +267,9 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const toggleExpanded = useCallback((entryId: number) => {
     // Don't toggle if content is short
     const entry = entries.find(e => e.id === entryId);
-    if (entry && getContentLength(entry.content) <= 600) return;
+    if (!entry) return;
+    const content = entry.content_fullArticle || entry.content_rssAbstract;
+    if (!content || getContentLength(content) <= 600) return;
 
     setExpandedEntries(prev => ({
       ...prev,
@@ -399,6 +413,76 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       </div>
     );
   };
+
+  // Replace the database hook effect with this updated version
+  useEffect(() => {
+    const handleStarredChange = (event: CustomEvent<{
+      entryId: number;
+      isStarred: boolean;
+      starredDate: Date | undefined;
+    }>) => {
+      // Update the entry in the local state immediately
+      setEntries(prevEntries =>
+        prevEntries.map(entry =>
+          entry.id === event.detail.entryId
+            ? {
+                ...entry,
+                isStarred: event.detail.isStarred,
+                starredDate: event.detail.starredDate
+              }
+            : entry
+        )
+      );
+    };
+
+    // Add event listener for star changes
+    window.addEventListener('entryStarredChanged', handleStarredChange as EventListener);
+
+    return () => {
+      window.removeEventListener('entryStarredChanged', handleStarredChange as EventListener);
+    };
+  }, []);
+
+  // Keep the existing database hook for other updates
+  useEffect(() => {
+    let subscription: { unsubscribe: () => void } | undefined;
+    
+    const setupSubscription = () => {
+      try {
+        subscription = db.entries.hook('updating', (modifications, primKey, obj, transaction) => {
+          if (modifications.isStarred !== undefined) {
+            const loadEntries = async () => {
+              const loadedEntries = props.entries 
+                ? props.entries 
+                : feedId 
+                  ? await getFeedEntries(parseInt(feedId))
+                  : location.pathname === '/starred'
+                    ? await getStarredEntries()
+                    : location.pathname === '/listened'
+                      ? await getListenedEntries()
+                      : await getAllEntries();
+              setEntries(loadedEntries);
+            };
+            loadEntries();
+          }
+        });
+      } catch (error) {
+        console.error('Error setting up database subscription:', error);
+      }
+    };
+
+    setupSubscription();
+
+    return () => {
+      if (subscription?.unsubscribe) {
+        try {
+          subscription.unsubscribe();
+        } catch (error) {
+          console.error('Error unsubscribing from database:', error);
+        }
+      }
+    };
+  }, [feedId, location.pathname, props.entries]);
 
   return (
     <>

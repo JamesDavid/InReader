@@ -20,6 +20,7 @@ interface FeedListEntryProps {
   onContentView: (entry: FeedEntry) => void;
   onContentLeave: (entryId: number) => void;
   contentRef: (element: HTMLDivElement | null) => void;
+  onOpenChat?: (entry: FeedEntry) => void;
 }
 
 interface FormattedContent {
@@ -43,6 +44,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   onContentView,
   onContentLeave,
   contentRef,
+  onOpenChat,
 }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -101,6 +103,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   };
 
   const getPreviewContent = (content: string, expanded: boolean) => {
+    if (!content) return '';
     const contentLength = getContentLength(content);
     if (contentLength <= 600) return content;
     if (expanded) return content;
@@ -122,8 +125,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
       result += node.textContent;
     }
 
-    const endIndex = content.indexOf(result) + result.length;
-    return content.slice(0, endIndex) + '...';
+    return content.slice(0, content.indexOf(result) + result.length) + '...';
   };
 
   const markdownClass = `prose prose-sm max-w-none 
@@ -199,9 +201,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
         console.log('Article clicked, entry ID:', entry.id);
         if (isChatOpen) return;
         if (e.target instanceof HTMLButtonElement || 
-            e.target instanceof HTMLAnchorElement ||
-            (e.target instanceof HTMLElement && e.target.closest('button')) ||
-            (e.target instanceof HTMLElement && e.target.closest('a'))) {
+            (e.target instanceof HTMLElement && e.target.closest('button'))) {
           return;
         }
         onSelect(index);
@@ -264,21 +264,35 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
               />
             </svg>
           </button>
+          {entry.content_fullArticle && (
+            <div 
+              className={`px-1.5 py-0.5 rounded text-xs font-medium
+                ${isDarkMode 
+                  ? 'bg-green-500/20 text-green-200' 
+                  : 'bg-green-100 text-green-800'}`}
+              title="Full article content available"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+            </div>
+          )}
         </div>
 
         <div className="flex-grow min-w-0">
           <div className="flex items-center gap-2">
             <h3 className={`text-base font-medium flex-grow min-w-0 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
               <div className="flex items-center min-w-0">
-                <a 
-                  href={entry.link} 
-                  target={isSelected ? "reader_tab" : "_blank"} 
-                  rel="noopener noreferrer"
-                  className={`truncate w-[75%] ${isDarkMode ? 'hover:text-blue-400' : 'hover:text-reader-blue'}`}
-                  onClick={() => onMarkAsRead(entry.id!)}
+                <button 
+                  className={`truncate w-[75%] text-left ${isDarkMode ? 'hover:text-blue-400' : 'hover:text-reader-blue'}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMarkAsRead(entry.id!);
+                    onOpenChat?.(entry);
+                  }}
                 >
                   {entry.title}
-                </a>
+                </button>
               </div>
             </h3>
           </div>

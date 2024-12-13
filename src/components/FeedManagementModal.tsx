@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
-import { PlusIcon, FolderIcon, RssIcon, XMarkIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, FolderIcon, RssIcon, XMarkIcon, TrashIcon, ArrowDownTrayIcon, ArrowUpTrayIcon } from '@heroicons/react/24/outline';
 import { StrictModeDroppable } from './StrictModeDroppable';
+import { importOpml, exportOpml } from '../services/opmlService';
 
 interface Folder {
   id: string;
@@ -51,6 +52,9 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
   });
   const [isUpdating, setIsUpdating] = useState(false);
   const [orderedFolders, setOrderedFolders] = useState<Folder[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize organization state and folder order
   useEffect(() => {
@@ -170,6 +174,47 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
     }
   };
 
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const content = await file.text();
+      const stats = await importOpml(content);
+      setImportSuccess(`Successfully imported ${stats.feeds} feeds and ${stats.folders} folders.`);
+      setImportError(null);
+      // Clear the input so the same file can be selected again
+      event.target.value = '';
+      // Refresh the feed list
+      window.location.reload();
+    } catch (error) {
+      setImportError('Failed to import OPML file. Please make sure it\'s a valid OPML file.');
+      setImportSuccess(null);
+      console.error('OPML import error:', error);
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      const opmlContent = await exportOpml();
+      const blob = new Blob([opmlContent], { type: 'text/xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'rss-feeds-export.opml';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('OPML export error:', error);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -179,17 +224,63 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
           <h2 className={`text-xl font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
             Manage Feeds
           </h2>
-          <button
-            onClick={onClose}
-            className={`p-1 rounded ${
-              isDarkMode 
-                ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
-                : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <XMarkIcon className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleImportClick}
+              className={`p-2 rounded flex items-center gap-1 ${
+                isDarkMode 
+                  ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' 
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              }`}
+              title="Import OPML"
+            >
+              <ArrowDownTrayIcon className="w-5 h-5" />
+              <span>Import</span>
+            </button>
+            <button
+              onClick={handleExport}
+              className={`p-2 rounded flex items-center gap-1 ${
+                isDarkMode 
+                  ? 'bg-gray-700 hover:bg-gray-600 text-gray-300' 
+                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              }`}
+              title="Export OPML"
+            >
+              <ArrowUpTrayIcon className="w-5 h-5" />
+              <span>Export</span>
+            </button>
+            <button
+              onClick={onClose}
+              className={`p-1 rounded ${
+                isDarkMode 
+                  ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                  : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <XMarkIcon className="w-5 h-5" />
+            </button>
+          </div>
         </div>
+
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileChange}
+          accept=".opml,text/xml"
+          className="hidden"
+        />
+
+        {importError && (
+          <div className={`mb-4 p-3 rounded ${isDarkMode ? 'bg-red-900/20 text-red-400' : 'bg-red-50 text-red-600'}`}>
+            {importError}
+          </div>
+        )}
+
+        {importSuccess && (
+          <div className={`mb-4 p-3 rounded ${isDarkMode ? 'bg-green-900/20 text-green-400' : 'bg-green-50 text-green-600'}`}>
+            {importSuccess}
+          </div>
+        )}
 
         {/* New Folder Form */}
         <form onSubmit={handleCreateFolder} className="mb-4">
