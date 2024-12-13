@@ -1,5 +1,7 @@
 import { enqueueRequest } from './requestQueueService';
 import TurndownService from 'turndown';
+import { db, type FeedEntry } from './db';
+import { loadOllamaConfig, generateSummaryWithFallback } from './ollamaService';
 
 const API_URL = 'http://localhost:3000/api';
 const turndownService = new TurndownService({
@@ -108,6 +110,48 @@ export async function fetchArticleContent(url: string, entryId?: number): Promis
       const genericError = new Error('Unknown error while fetching article') as ArticleError;
       genericError.code = 'UNKNOWN';
       throw genericError;
+    }
+  }, entryId);
+}
+
+export async function processEntryForSummary(entryId: number): Promise<void> {
+  return enqueueRequest(async () => {
+    try {
+      const entry = await db.entries.get(entryId);
+      if (!entry) throw new Error('Entry not found');
+
+      const config = loadOllamaConfig();
+      if (!config) throw new Error('Ollama configuration not found');
+
+      // Generate summary with automatic fallback
+      const { summary, isFullContent } = await generateSummaryWithFallback(
+        entry,
+        config,
+        undefined // No token callback needed for background processing
+      );
+
+      // Update the entry with the summary and metadata
+      await db.entries.update(entryId, {
+        content_aiSummary: summary,
+        aiSummaryMetadata: {
+          isFullContent,
+          model: config.summaryModel
+        },
+        requestProcessingStatus: 'success'
+      });
+
+    } catch (error) {
+      console.error('Error processing entry for summary:', error);
+      const errorInfo = {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        code: (error as any).code || 'UNKNOWN',
+        details: (error as any).details
+      };
+      await db.entries.update(entryId, {
+        requestProcessingStatus: 'failed',
+        requestError: errorInfo
+      });
+      throw error;
     }
   }, entryId);
 } 

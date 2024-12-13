@@ -77,7 +77,7 @@ export const enqueueRequest = async <T>(
   let queuedRequest: QueuedRequest = {
     status: 'queued',
     addedAt: new Date(),
-    type: 'unknown'
+    type: entryId ? 'summary' : 'unknown'
   };
 
   // Add entry-specific information if available
@@ -108,7 +108,7 @@ export const enqueueRequest = async <T>(
         entryTitle: entry.title,
         status: 'queued',
         addedAt: new Date(),
-        type: 'entry'
+        type: 'summary'
       };
       console.log('Created request with entry and feed info:', JSON.stringify(queuedRequest, null, 2));
 

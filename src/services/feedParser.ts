@@ -2,8 +2,26 @@ import { addEntry, addFeed, type Feed, type FeedEntry, db } from './db';
 import { enqueueRequest } from './requestQueueService';
 import { fetchArticleContent } from './articleService';
 import { generateSummary, loadOllamaConfig } from './ollamaService';
+import TurndownService from 'turndown';
 
 const API_URL = 'http://localhost:3000/api';
+
+// Create a shared TurndownService instance with the same config as articleService
+const turndownService = new TurndownService({
+  headingStyle: 'atx',
+  hr: '---',
+  bulletListMarker: '-',
+  codeBlockStyle: 'fenced'
+});
+
+// Helper function to convert HTML to Markdown
+function convertToMarkdown(html: string): string {
+  const markdown = turndownService.turndown(html);
+  return markdown
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 interface ParsedFeedItem {
   title: string;
@@ -51,14 +69,26 @@ async function processEntry(entryId: number) {
     });
 
     // Step 1: Fetch full article content
-    console.log('Fetching article content for:', entry.title);
-    const articleContent = await fetchArticleContent(entry.link, entryId);
-    console.log('Successfully fetched article content for:', entry.title);
+    let articleContent;
+    let isFullContent = true;
+    try {
+      console.log('Fetching article content for:', entry.title);
+      articleContent = await fetchArticleContent(entry.link, entryId);
+      console.log('Successfully fetched article content for:', entry.title);
 
-    // Update entry with fetched content
-    await db.entries.update(entryId, {
-      content_fullArticle: articleContent.content
-    });
+      // Update entry with fetched content
+      await db.entries.update(entryId, {
+        content_fullArticle: articleContent.content
+      });
+    } catch (error) {
+      console.log('Failed to fetch full article, falling back to RSS content:', error);
+      // Fall back to RSS content
+      articleContent = {
+        content: entry.content_rssAbstract,
+        isFullContent: false
+      };
+      isFullContent = false;
+    }
 
     // Step 2: Generate AI summary if Ollama is configured
     console.log('Loading Ollama config for:', entry.title);
@@ -91,7 +121,7 @@ async function processEntry(entryId: number) {
     await db.entries.update(entryId, {
       content_aiSummary: summary,
       aiSummaryMetadata: {
-        isFullContent: articleContent.isFullContent,
+        isFullContent,
         model: config.summaryModel,
         contentLength: articleContent.content.length
       },
@@ -147,7 +177,7 @@ async function processNewEntries(feedId: number, feedTitle: string, items: Parse
         feedId,
         feedTitle,
         title: item.title,
-        content_rssAbstract: item.content,
+        content_rssAbstract: convertToMarkdown(item.content),
         link: item.link,
         publishDate: new Date(item.pubDate),
         isRead: false,

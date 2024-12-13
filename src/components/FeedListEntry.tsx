@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { type FeedEntry, type ChatMessage } from '../services/db';
@@ -47,6 +47,54 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   onOpenChat,
 }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const articleRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const checkVisibility = () => {
+      if (!articleRef.current) return;
+      
+      const scrollContainer = articleRef.current.closest('.overflow-y-auto');
+      if (!scrollContainer) return;
+
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const rect = articleRef.current.getBoundingClientRect();
+      const halfwayPoint = containerRect.top + (containerRect.height / 2);
+      
+      // Check if the top edge is below the halfway point (scrolling down)
+      if (rect.top > halfwayPoint) {
+        // Calculate the target scroll position (25% from the top)
+        const targetPosition = scrollContainer.scrollTop + (rect.top - containerRect.top) - (containerRect.height * 0.25);
+        scrollContainer.scrollTo({
+          top: targetPosition,
+          behavior: 'smooth'
+        });
+      }
+      // Check if the top edge is above the container's top edge (scrolling up)
+      else if (rect.top < containerRect.top) {
+        // If entry is taller than viewport, align bottom edge with bottom of viewport
+        if (rect.height > containerRect.height) {
+          const targetPosition = scrollContainer.scrollTop + (rect.bottom - containerRect.bottom);
+          scrollContainer.scrollTo({
+            top: targetPosition,
+            behavior: 'smooth'
+          });
+        }
+        // If entry is shorter than viewport, align top edge with top of viewport
+        else {
+          const targetPosition = scrollContainer.scrollTop + (rect.top - containerRect.top);
+          scrollContainer.scrollTo({
+            top: targetPosition,
+            behavior: 'smooth'
+          });
+        }
+      }
+    };
+
+    if (isSelected) {
+      // Small delay to let other scroll behaviors complete
+      setTimeout(checkVisibility, 0);
+    }
+  }, [isSelected]);
 
   const handleRefresh = async (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent article selection when clicking refresh
@@ -195,6 +243,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
 
   return (
     <article
+      ref={articleRef}
       data-index={index}
       data-entry-id={entry.id}
       onClick={(e) => {

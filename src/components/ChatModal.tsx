@@ -12,6 +12,7 @@ interface ChatModalProps {
   articleContent: string;
   articleUrl: string;
   entryId: number;
+  feedTitle?: string;
   onChatUpdate?: () => void;
 }
 
@@ -23,11 +24,13 @@ const ChatModal: React.FC<ChatModalProps> = ({
   articleContent,
   articleUrl,
   entryId,
+  feedTitle,
   onChatUpdate
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const [fullArticleContent, setFullArticleContent] = useState<string | null>(null);
   const [activeModel, setActiveModel] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -98,6 +101,23 @@ const ChatModal: React.FC<ChatModalProps> = ({
     }
   }, [isOpen, fullArticleContent]);
 
+  // Focus input when modal opens
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      // Small delay to ensure input is mounted and modal transition is complete
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  }, [isOpen]);
+
+  // Also focus when content is loaded
+  useEffect(() => {
+    if (isOpen && fullArticleContent && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isOpen, fullArticleContent]);
+
   const initializeChat = async () => {
     if (!fullArticleContent) return;
 
@@ -141,9 +161,21 @@ const ChatModal: React.FC<ChatModalProps> = ({
     }
   };
 
+  // Add typing animation component
+  const TypingAnimation = () => (
+    <div className={`flex items-center gap-1 p-4 ${isDarkMode ? 'bg-blue-500/10' : 'bg-blue-50'} rounded-lg`}>
+      <div className="flex gap-1">
+        <div className={`w-2 h-2 rounded-full ${isDarkMode ? 'bg-blue-400' : 'bg-blue-500'} animate-bounce [animation-delay:-0.3s]`}></div>
+        <div className={`w-2 h-2 rounded-full ${isDarkMode ? 'bg-blue-400' : 'bg-blue-500'} animate-bounce [animation-delay:-0.15s]`}></div>
+        <div className={`w-2 h-2 rounded-full ${isDarkMode ? 'bg-blue-400' : 'bg-blue-500'} animate-bounce`}></div>
+      </div>
+      <span className={`text-sm ${isDarkMode ? 'text-blue-200' : 'text-blue-600'}`}>Assistant is typing...</span>
+    </div>
+  );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || !fullArticleContent) return;
 
     const userMessage: ChatMessage = {
       id: 'user-' + Math.random().toString(36).substring(7),
@@ -161,6 +193,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
     await db.entries.update(entryId, { chatHistory: updatedMessages });
     
     setIsLoading(true);
+    setIsTyping(true);
     setError(null);
 
     try {
@@ -176,11 +209,11 @@ const ChatModal: React.FC<ChatModalProps> = ({
           role: 'system',
           content: `You are a helpful assistant discussing the article titled "${articleTitle}". Here is the article content for context:\n\n${fullArticleContent}\n\nPlease help answer questions about this article, using only information from the provided content.`
         },
-        // Include chat history excluding system and article messages
+        // Include chat history excluding system messages
         ...updatedMessages
-          .filter(msg => msg.role !== 'article' && msg.role !== 'system')
+          .filter(msg => msg.role === 'user' || msg.role === 'assistant')
           .map(msg => ({
-            role: msg.role === 'user' || msg.role === 'assistant' ? msg.role : 'user',
+            role: msg.role,
             content: msg.content
           }))
       ];
@@ -215,6 +248,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
 
       // Add empty assistant message to chat
       setMessages(prev => [...prev, assistantMessage]);
+      setIsTyping(false);
 
       // Process the stream
       let responseText = '';
@@ -266,6 +300,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
     } catch (err) {
       console.error('Chat error:', err);
       setError(err instanceof Error ? err.message : 'Failed to get response');
+      setIsTyping(false);
       
       // Remove the last message if it was an empty assistant message
       setMessages(prev => {
@@ -277,23 +312,70 @@ const ChatModal: React.FC<ChatModalProps> = ({
       });
     } finally {
       setIsLoading(false);
+      setIsTyping(false);
     }
+  };
+
+  // Add scroll event listener
+  useEffect(() => {
+    const handleScroll = (event: CustomEvent<{ direction: 'up' | 'down' }>) => {
+      const articleContainer = document.querySelector('[data-article-content]');
+      console.log('Article container:', articleContainer, 'Collapsed:', isContentCollapsed);
+      if (!articleContainer || isContentCollapsed) return;
+
+      const scrollAmount = articleContainer.clientHeight * 0.33;
+      const currentScroll = articleContainer.scrollTop;
+      console.log('Scrolling article:', { direction: event.detail.direction, scrollAmount, currentScroll });
+      
+      articleContainer.scrollTo({
+        top: currentScroll + (event.detail.direction === 'down' ? scrollAmount : -scrollAmount),
+        behavior: 'smooth'
+      });
+    };
+
+    window.addEventListener('chatModalScroll', handleScroll as EventListener);
+    return () => {
+      window.removeEventListener('chatModalScroll', handleScroll as EventListener);
+    };
+  }, [isContentCollapsed]);
+
+  const handleCopyResponse = (message: ChatMessage, index: number) => {
+    // Find the preceding user message
+    const userMessage = messages[index - 1];
+    if (!userMessage || userMessage.role !== 'user') return;
+
+    // Format the content as clean text
+    const content = [
+      `Question:`,
+      userMessage.content,
+      `\nAnswer (${activeModel} on ${isUsingFullContent ? 'Full Article Text' : 'RSS Summary Text'}):`,
+      message.content,
+      `\nFrom: ${articleTitle}${feedTitle ? ` - ${feedTitle}` : ''}`,
+      `Source: ${articleUrl}`,
+    ].filter(Boolean).join('\n');
+
+    navigator.clipboard.writeText(content);
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" data-chat-modal>
       <div className="absolute inset-0 bg-black opacity-30" onClick={onClose} />
       <div className={`relative z-50 rounded-lg p-6 w-[95vw] h-[90vh] border-2 shadow-xl flex flex-col
         ${isDarkMode ? 'bg-gray-800 border-gray-600' : 'bg-white border-gray-200'}`}>
         {/* Header */}
         <div className="flex justify-between items-center mb-4">
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1">
             <h2 className={`text-xl font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
               {articleTitle}
             </h2>
-            <div className="flex items-center gap-2">
+            {feedTitle && (
+              <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                {feedTitle}
+              </div>
+            )}
+            <div className="flex items-center gap-2 mt-1">
               {activeModel && (
                 <div className={`text-sm px-2 py-1 rounded-full flex items-center gap-1
                   ${isDarkMode ? 'bg-blue-500/20 text-blue-200' : 'bg-blue-100 text-blue-800'}`}
@@ -366,7 +448,10 @@ const ChatModal: React.FC<ChatModalProps> = ({
                 </button>
               </div>
             </div>
-            <div className={`flex-1 overflow-y-auto rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'} ${isContentCollapsed ? 'hidden' : ''}`}>
+            <div 
+              data-article-content
+              className={`flex-1 overflow-y-auto rounded-lg ${isDarkMode ? 'bg-gray-700' : 'bg-gray-50'} ${isContentCollapsed ? 'hidden' : ''}`}
+            >
               <div className={`p-4 ${markdownClass}`}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {fullArticleContent || ''}
@@ -403,10 +488,29 @@ const ChatModal: React.FC<ChatModalProps> = ({
                           >
                             {message.content}
                           </ReactMarkdown>
+                          {message.role === 'assistant' && (
+                            <div className="flex justify-end mt-2">
+                              <button
+                                onClick={() => handleCopyResponse(message, index)}
+                                className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
+                                  ${isDarkMode 
+                                    ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                                    : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}
+                                title="Copy conversation as HTML"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                  <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                                  <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                                </svg>
+                                <span>Copy</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       ) : null}
                     </div>
                   ))}
+                  {isTyping && <TypingAnimation />}
                   <div ref={messagesEndRef} />
                 </div>
                 {error && (
@@ -424,16 +528,17 @@ const ChatModal: React.FC<ChatModalProps> = ({
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Ask a question about the article..."
+                placeholder={fullArticleContent ? "Ask a question about the article..." : "Loading article content..."}
                 className={`flex-1 px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-reader-blue
                   ${isDarkMode 
                     ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
-                    : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}`}
-                disabled={isLoading}
+                    : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}
+                  ${!fullArticleContent ? 'opacity-50' : ''}`}
+                disabled={isLoading || !fullArticleContent}
               />
               <button
                 type="submit"
-                disabled={isLoading || !input.trim()}
+                disabled={isLoading || !input.trim() || !fullArticleContent}
                 className={`px-4 py-2 rounded-lg font-medium transition-colors
                   ${isDarkMode
                     ? 'bg-reader-blue text-white hover:bg-blue-600'

@@ -112,4 +112,33 @@ export const generateSummary = async (
       throw error;
     }
   }, entryId);
-}; 
+};
+
+export const generateSummaryWithFallback = async (
+  entry: {
+    content_fullArticle?: string;
+    content_rssAbstract: string;
+    id?: number;
+  },
+  config: OllamaConfig,
+  onToken?: (token: string) => void
+): Promise<{ summary: string; isFullContent: boolean }> => {
+  // Determine which content to use
+  const contentToSummarize = entry.content_fullArticle || entry.content_rssAbstract;
+  const isFullContent = Boolean(entry.content_fullArticle);
+
+  // Generate the summary
+  const summary = await generateSummary(
+    contentToSummarize,
+    '', // URL is not needed for summarization
+    config,
+    onToken,
+    entry.id
+  );
+
+  return {
+    summary,
+    isFullContent
+  };
+};
+  

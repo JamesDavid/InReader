@@ -89,14 +89,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   // Handle scrolling
   useEffect(() => {
     if (!isFocused || paginatedState.items.length === 0) return;
-    
-    const selectedElement = document.querySelector(`[data-index="${selectedIndex}"]`);
-    if (selectedElement) {
-      selectedElement.scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'nearest'
-      });
-    }
   }, [selectedIndex, isFocused, paginatedState.items.length]);
 
   const handleMarkAsRead = useCallback(async (entryId: number) => {
@@ -484,6 +476,31 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     };
   }, [feedId, location.pathname, props.entries]);
 
+  // Add pagination event listener
+  useEffect(() => {
+    const handlePageChange = (event: CustomEvent<{ page: number; selectIndex: number; direction: 'prev' | 'next' }>) => {
+      setCurrentPage(event.detail.page);
+      onSelectedIndexChange(event.detail.selectIndex);
+
+      // Wait for the page change to complete before scrolling
+      setTimeout(() => {
+        const scrollContainer = listRef.current;
+        if (!scrollContainer) return;
+
+        // If going to previous page, scroll to bottom, if next page, scroll to top
+        scrollContainer.scrollTo({
+          top: event.detail.direction === 'prev' ? scrollContainer.scrollHeight : 0,
+          behavior: 'instant'
+        });
+      }, 0);
+    };
+
+    window.addEventListener('feedListPageChange', handlePageChange as EventListener);
+    return () => {
+      window.removeEventListener('feedListPageChange', handlePageChange as EventListener);
+    };
+  }, [onSelectedIndexChange]);
+
   return (
     <>
       <div 
@@ -498,36 +515,43 @@ const FeedList: React.FC<FeedListProps> = (props) => {
           </div>
         ) : (
           <>
-            {paginatedState.items.map((entry, index) => (
-              <FeedListEntry
-                key={entry.id}
-                entry={entry}
-                index={index}
-                isSelected={selectedIndex === index}
-                isFocused={isFocused}
-                isDarkMode={isDarkMode}
-                isChatOpen={isChatOpen}
-                isExpanded={expandedEntries[entry.id!] || false}
-                onSelect={onSelectedIndexChange}
-                onFocusChange={onFocusChange}
-                onMarkAsRead={handleMarkAsRead}
-                onToggleStar={handleToggleStar}
-                onToggleExpand={toggleExpanded}
-                onContentView={handleContentView}
-                onContentLeave={(entryId) => {
-                  if (readTimerRef.current[entryId]) {
-                    clearTimeout(readTimerRef.current[entryId]);
-                    delete readTimerRef.current[entryId];
-                  }
-                }}
-                contentRef={(element) => {
-                  if (entry.id) {
-                    contentRefs.current[entry.id] = element;
-                  }
-                }}
-              />
-            ))}
-            <PaginationFooter />
+            <div
+              data-current-page={currentPage}
+              data-total-pages={paginatedState.totalPages}
+              data-prev-page-items={currentPage > 1 ? paginationService.getPage(currentPage - 1).length : 0}
+              data-next-page-items={currentPage < paginatedState.totalPages ? paginationService.getPage(currentPage + 1).length : 0}
+            >
+              {paginatedState.items.map((entry, index) => (
+                <FeedListEntry
+                  key={entry.id}
+                  entry={entry}
+                  index={index}
+                  isSelected={selectedIndex === index}
+                  isFocused={isFocused}
+                  isDarkMode={isDarkMode}
+                  isChatOpen={isChatOpen}
+                  isExpanded={expandedEntries[entry.id!] || false}
+                  onSelect={onSelectedIndexChange}
+                  onFocusChange={onFocusChange}
+                  onMarkAsRead={handleMarkAsRead}
+                  onToggleStar={handleToggleStar}
+                  onToggleExpand={toggleExpanded}
+                  onContentView={handleContentView}
+                  onContentLeave={(entryId) => {
+                    if (readTimerRef.current[entryId]) {
+                      clearTimeout(readTimerRef.current[entryId]);
+                      delete readTimerRef.current[entryId];
+                    }
+                  }}
+                  contentRef={(element) => {
+                    if (entry.id) {
+                      contentRefs.current[entry.id] = element;
+                    }
+                  }}
+                />
+              ))}
+              <PaginationFooter />
+            </div>
           </>
         )}
       </div>
@@ -544,6 +568,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
           articleContent={chatEntry.content}
           articleUrl={chatEntry.link}
           entryId={chatEntry.id!}
+          feedTitle={chatEntry.feedTitle}
           onChatUpdate={() => {
             const loadLatest = async () => {
               const loadedEntries = props.entries 

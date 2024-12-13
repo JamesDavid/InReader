@@ -26,6 +26,7 @@ const Layout: React.FC = () => {
   const [selectedSidebarIndex, setSelectedSidebarIndex] = useState(0);
   const [selectedFeedIndex, setSelectedFeedIndex] = useState(0);
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(null);
+  const [lastNavigationKey, setLastNavigationKey] = useState<'j' | 'k' | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('darkMode');
     return saved ? JSON.parse(saved) : false;
@@ -95,32 +96,63 @@ const Layout: React.FC = () => {
 
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
+      // Only block keyboard shortcuts if we're in an input/textarea
+      // or if a modal other than chat is open
       if (
         document.activeElement?.tagName === 'INPUT' ||
         document.activeElement?.tagName === 'TEXTAREA' ||
-        document.querySelector('.fixed.inset-0')
+        (document.querySelector('.fixed.inset-0') && !showChatModal)
       ) {
         return;
       }
 
       switch (e.key.toLowerCase()) {
+        case 'escape': {
+          e.preventDefault();
+          if (showChatModal) {
+            setShowChatModal(false);
+            setSelectedEntry(null);
+          }
+          break;
+        }
         case 'j': {
           e.preventDefault();
+          setLastNavigationKey('j');
           if (sidebarFocused) {
             const sidebarElement = document.querySelector('[data-sidebar-items-count]');
             const maxItems = parseInt(sidebarElement?.getAttribute('data-sidebar-items-count') || '0');
             setSelectedSidebarIndex(prev => Math.min(prev + 1, maxItems - 1));
           } else {
-            const feedListElement = document.querySelector('main');
-            const maxItems = feedListElement?.querySelectorAll('[data-index]').length || 0;
+            const feedListElement = document.querySelector('main [data-current-page]');
+            if (!feedListElement) return;
+
+            const maxItems = feedListElement.querySelectorAll('article').length;
+            const currentPage = parseInt(feedListElement.getAttribute('data-current-page') || '1');
+            const totalPages = parseInt(feedListElement.getAttribute('data-total-pages') || '1');
+            const nextPageItems = parseInt(feedListElement.getAttribute('data-next-page-items') || '0');
+
             if (maxItems > 0) {
               setSelectedFeedIndex(prev => {
                 const nextIndex = prev + 1;
+                console.log('j pressed:', { nextIndex, maxItems, currentPage, totalPages });
+                // If we're at the last item and there's a next page
+                if (nextIndex >= maxItems && currentPage < totalPages) {
+                  console.log('Triggering page change to next page');
+                  // Dispatch a custom event to notify FeedList to change page
+                  window.dispatchEvent(new CustomEvent('feedListPageChange', {
+                    detail: { 
+                      page: currentPage + 1,
+                      selectIndex: 0, // Select first item on next page
+                      direction: 'next'
+                    }
+                  }));
+                  return 0; // Reset to first item
+                }
                 if (nextIndex >= maxItems) {
                   return prev;
                 }
                 // Update the selected entry ID when changing index
-                const nextArticle = document.querySelector(`article[data-index="${nextIndex}"]`);
+                const nextArticle = feedListElement.querySelector(`article[data-index="${nextIndex}"]`);
                 const nextEntryId = nextArticle?.getAttribute('data-entry-id');
                 if (nextEntryId) {
                   setSelectedEntryId(parseInt(nextEntryId));
@@ -133,18 +165,72 @@ const Layout: React.FC = () => {
         }
         case 'k': {
           e.preventDefault();
+          setLastNavigationKey('k');
           if (sidebarFocused) {
             setSelectedSidebarIndex(prev => Math.max(0, prev - 1));
           } else {
+            const feedListElement = document.querySelector('main [data-current-page]');
+            if (!feedListElement) return;
+
+            const currentPage = parseInt(feedListElement.getAttribute('data-current-page') || '1');
+            const prevPageItems = parseInt(feedListElement.getAttribute('data-prev-page-items') || '0');
+            
             setSelectedFeedIndex(prev => {
-              const nextIndex = Math.max(0, prev - 1);
+              const nextIndex = prev - 1;
+              console.log('k pressed:', { nextIndex, currentPage, prevPageItems });
+              // If we're at the first item and there's a previous page
+              if (nextIndex < 0 && currentPage > 1) {
+                console.log('Triggering page change to previous page');
+                // Dispatch a custom event to notify FeedList to change page
+                window.dispatchEvent(new CustomEvent('feedListPageChange', {
+                  detail: { 
+                    page: currentPage - 1,
+                    selectIndex: prevPageItems - 1, // Select last item on previous page
+                    direction: 'prev'
+                  }
+                }));
+                return prevPageItems - 1; // Set to last item of previous page
+              }
+              if (nextIndex < 0) {
+                return 0;
+              }
               // Update the selected entry ID when changing index
-              const nextArticle = document.querySelector(`article[data-index="${nextIndex}"]`);
+              const nextArticle = feedListElement.querySelector(`article[data-index="${nextIndex}"]`);
               const nextEntryId = nextArticle?.getAttribute('data-entry-id');
               if (nextEntryId) {
                 setSelectedEntryId(parseInt(nextEntryId));
               }
               return nextIndex;
+            });
+          }
+          break;
+        }
+        case ' ': {
+          if (!sidebarFocused) {
+            e.preventDefault();
+            // Check if chat modal is open
+            const chatModal = document.querySelector('[data-chat-modal]');
+            if (chatModal) {
+              // Dispatch event for chat modal to handle scrolling
+              window.dispatchEvent(new CustomEvent('chatModalScroll', {
+                detail: { direction: lastNavigationKey === 'j' ? 'down' : 'up' }
+              }));
+              return;
+            }
+
+            // If chat modal is not open, handle feed list scrolling
+            const mainElement = document.querySelector('main');
+            const scrollContainer = mainElement?.querySelector('.overflow-y-auto');
+            if (!scrollContainer || !lastNavigationKey) return;
+            
+            console.log('Space pressed, last navigation key:', lastNavigationKey);
+            const scrollAmount = scrollContainer.clientHeight * 0.33;
+            const currentScroll = scrollContainer.scrollTop;
+            console.log('Current scroll:', currentScroll, 'Scroll amount:', scrollAmount);
+            
+            scrollContainer.scrollTo({
+              top: currentScroll + (lastNavigationKey === 'j' ? scrollAmount : -scrollAmount),
+              behavior: 'smooth'
             });
           }
           break;
@@ -243,7 +329,8 @@ const Layout: React.FC = () => {
     handlePopToCurrentItem,
     setSelectedSidebarIndex,
     setSelectedFeedIndex,
-    selectedEntryId
+    selectedEntryId,
+    lastNavigationKey
   ]);
 
   useEffect(() => {
@@ -329,12 +416,16 @@ const Layout: React.FC = () => {
       {showChatModal && selectedEntry && (
         <ChatModal
           isOpen={showChatModal}
-          onClose={() => setShowChatModal(false)}
+          onClose={() => {
+            setShowChatModal(false);
+            setSelectedEntry(null);
+          }}
           isDarkMode={isDarkMode}
           articleTitle={selectedEntry.title}
           articleContent={selectedEntry.content_rssAbstract}
           articleUrl={selectedEntry.link}
           entryId={selectedEntry.id!}
+          feedTitle={selectedEntry.feedTitle}
           onChatUpdate={() => {
             // Handle chat updates if needed
           }}
