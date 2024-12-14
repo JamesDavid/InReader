@@ -44,6 +44,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentEntry, setCurrentEntry] = useState(entry);
   const articleRef = useRef<HTMLElement>(null);
+  const contentElementRef = useRef<HTMLDivElement | null>(null);
   const [feedTitle, setFeedTitle] = useState(entry.feedTitle);
 
   useEffect(() => {
@@ -296,6 +297,94 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     };
   }, [currentEntry.id]);
 
+  // Modify the isContentFullyVisible function
+  const isContentFullyVisible = () => {
+    const contentElement = contentElementRef.current;
+    if (!contentElement) return true;
+
+    const rect = contentElement.getBoundingClientRect();
+    const parentContainer = contentElement.closest('.overflow-y-auto');
+    if (!parentContainer) return true;
+
+    const containerRect = parentContainer.getBoundingClientRect();
+    return rect.bottom <= containerRect.bottom;
+  };
+
+  // Modify the scrollContent function
+  const scrollContent = () => {
+    const contentElement = contentElementRef.current;
+    if (!contentElement) return;
+
+    const parentContainer = contentElement.closest('.overflow-y-auto');
+    if (!parentContainer) return;
+
+    const scrollAmount = parentContainer.clientHeight * 0.33;
+    parentContainer.scrollBy({
+      top: scrollAmount,
+      behavior: 'smooth'
+    });
+  };
+
+  // Modify the spacebar expansion handler
+  useEffect(() => {
+    const handleToggleExpand = (event: CustomEvent<{ entryId: number }>) => {
+      if (event.detail.entryId === currentEntry.id) {
+        const content = currentEntry.content_fullArticle || currentEntry.content_rssAbstract;
+        if (!content || getContentLength(content) <= 600) return;
+
+        // If content is expanded but not fully visible, scroll instead of collapsing
+        if (isExpanded && !isContentFullyVisible()) {
+          scrollContent();
+        } else {
+          onToggleExpand(currentEntry.id!);
+        }
+      }
+    };
+
+    window.addEventListener('toggleEntryExpand', handleToggleExpand as EventListener);
+    return () => {
+      window.removeEventListener('toggleEntryExpand', handleToggleExpand as EventListener);
+    };
+  }, [currentEntry.id, currentEntry.content_fullArticle, currentEntry.content_rssAbstract, onToggleExpand, isExpanded]);
+
+  // Add this helper function to check if top is visible
+  const isTopVisible = () => {
+    if (!articleRef.current) return true;
+    const rect = articleRef.current.getBoundingClientRect();
+    const parentContainer = articleRef.current.closest('.overflow-y-auto');
+    if (!parentContainer) return true;
+
+    const containerRect = parentContainer.getBoundingClientRect();
+    return rect.top >= containerRect.top;
+  };
+
+  // Add this helper function to scroll up
+  const scrollUp = () => {
+    if (!articleRef.current) return;
+    const parentContainer = articleRef.current.closest('.overflow-y-auto');
+    if (!parentContainer) return;
+
+    const scrollAmount = parentContainer.clientHeight * 0.33;
+    parentContainer.scrollBy({
+      top: -scrollAmount,
+      behavior: 'smooth'
+    });
+  };
+
+  // Add effect to listen for scroll event
+  useEffect(() => {
+    const handleEntryScroll = (event: CustomEvent<{ entryId: number }>) => {
+      if (event.detail.entryId === currentEntry.id && !isTopVisible()) {
+        scrollUp();
+      }
+    };
+
+    window.addEventListener('feedEntryScroll', handleEntryScroll as EventListener);
+    return () => {
+      window.removeEventListener('feedEntryScroll', handleEntryScroll as EventListener);
+    };
+  }, [currentEntry.id]);
+
   return (
     <article
       ref={articleRef}
@@ -433,7 +522,10 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
 
       {isSelected && (
         <div 
-          ref={contentRef}
+          ref={(element) => {
+            contentElementRef.current = element;
+            contentRef(element);
+          }}
           className={`px-4 pb-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} relative`}
           onMouseEnter={() => onContentView(currentEntry)}
           onMouseLeave={() => onContentLeave(currentEntry.id!)}

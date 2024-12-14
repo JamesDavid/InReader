@@ -152,6 +152,10 @@ const Layout: React.FC = () => {
           if (isChatModalOpen) {
             setIsChatModalOpen(false);
             setSelectedEntry(null);
+          } else if (isSearchModalOpen) {
+            setIsSearchModalOpen(false);
+          } else if (showAddFeedModal) {
+            setShowAddFeedModal(false);
           }
           break;
         }
@@ -215,6 +219,22 @@ const Layout: React.FC = () => {
             const currentPage = parseInt(feedListElement.getAttribute('data-current-page') || '1');
             const prevPageItems = parseInt(feedListElement.getAttribute('data-prev-page-items') || '0');
             
+            // Check if current entry needs scrolling
+            const currentArticle = feedListElement.querySelector(`article[data-index="${selectedFeedIndex}"]`);
+            if (currentArticle) {
+              const rect = currentArticle.getBoundingClientRect();
+              const containerRect = feedListElement.closest('.overflow-y-auto')?.getBoundingClientRect();
+              if (containerRect && rect.top < containerRect.top) {
+                const entryId = currentArticle.getAttribute('data-entry-id');
+                if (entryId) {
+                  window.dispatchEvent(new CustomEvent('feedEntryScroll', {
+                    detail: { entryId: parseInt(entryId) }
+                  }));
+                  return; // Don't move to previous entry until scrolling is complete
+                }
+              }
+            }
+            
             setSelectedFeedIndex(prev => {
               const nextIndex = prev - 1;
               console.log('k pressed:', { nextIndex, currentPage, prevPageItems });
@@ -258,20 +278,12 @@ const Layout: React.FC = () => {
               return;
             }
 
-            // If chat modal is not open, handle feed list scrolling
-            const mainElement = document.querySelector('main');
-            const scrollContainer = mainElement?.querySelector('.overflow-y-auto');
-            if (!scrollContainer || !lastNavigationKey) return;
-            
-            console.log('Space pressed, last navigation key:', lastNavigationKey);
-            const scrollAmount = scrollContainer.clientHeight * 0.33;
-            const currentScroll = scrollContainer.scrollTop;
-            console.log('Current scroll:', currentScroll, 'Scroll amount:', scrollAmount);
-            
-            scrollContainer.scrollTo({
-              top: currentScroll + (lastNavigationKey === 'j' ? scrollAmount : -scrollAmount),
-              behavior: 'smooth'
-            });
+            // If chat modal is not open and we have a selected entry, dispatch expand event
+            if (selectedEntryId !== null) {
+              window.dispatchEvent(new CustomEvent('toggleEntryExpand', {
+                detail: { entryId: selectedEntryId }
+              }));
+            }
           }
           break;
         }
@@ -283,7 +295,9 @@ const Layout: React.FC = () => {
           break;
         case 'l': {
           e.preventDefault();
-          if (!sidebarFocused && selectedEntryId !== null) {
+          if (sidebarFocused) {
+            setSidebarFocused(false);
+          } else if (selectedEntryId !== null) {
             const entry = await db.entries.get(selectedEntryId);
             if (entry) {
               const feed = await db.feeds.get(entry.feedId!);

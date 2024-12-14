@@ -184,7 +184,31 @@ const ChatModal: React.FC<ChatModalProps> = ({
           id: msg.id || `${msg.role}-${Math.random().toString(36).substring(7)}`,
           timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date()
         }));
-        setMessages(validatedHistory);
+
+        // Check if the first message is a system message with article content
+        const hasProperSystemMessage = validatedHistory.some(msg => 
+          msg.role === 'system' && 
+          msg.content.includes(articleTitle) && 
+          msg.content.includes(fullArticleContent)
+        );
+
+        if (!hasProperSystemMessage) {
+          // If no proper system message, create new chat history with article content
+          const now = new Date();
+          const systemMessage: ChatMessage = {
+            role: 'system',
+            content: `You are a helpful assistant discussing the article titled "${articleTitle}". Here is the article content for context:\n\n${fullArticleContent}\n\nPlease help answer questions about this article, using only information from the provided content.`,
+            timestamp: now,
+            id: 'system-' + Math.random().toString(36).substring(7)
+          };
+          setMessages([systemMessage, ...validatedHistory]);
+          await db.entries.update(entryId, { 
+            chatHistory: [systemMessage, ...validatedHistory],
+            lastChatDate: now
+          });
+        } else {
+          setMessages(validatedHistory);
+        }
         return;
       }
 
@@ -192,19 +216,12 @@ const ChatModal: React.FC<ChatModalProps> = ({
       const now = new Date();
       const systemMessage: ChatMessage = {
         role: 'system',
-        content: `You are a helpful assistant discussing the article titled "${articleTitle}". The article content has been provided for context. Please help answer any questions about the article. Base your responses only on the provided article content.`,
+        content: `You are a helpful assistant discussing the article titled "${articleTitle}". Here is the article content for context:\n\n${fullArticleContent}\n\nPlease help answer questions about this article, using only information from the provided content.`,
         timestamp: now,
         id: 'system-' + Math.random().toString(36).substring(7)
       };
 
-      const articleMessage: ChatMessage = {
-        role: 'article',
-        content: `Article content:\n\n${fullArticleContent}`,
-        timestamp: now,
-        id: 'article-' + Math.random().toString(36).substring(7)
-      };
-
-      const initialMessages = [systemMessage, articleMessage];
+      const initialMessages = [systemMessage];
       setMessages(initialMessages);
       await db.entries.update(entryId, { 
         chatHistory: initialMessages,
