@@ -4,7 +4,7 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import SearchModal from './SearchModal';
 import ttsService from '../services/ttsService';
-import { getSavedSearches, deleteSavedSearch, type SavedSearch, db } from '../services/db';
+import { getSavedSearches, deleteSavedSearch, type SavedSearch, type FeedEntryWithTitle, db } from '../services/db';
 import AddFeedModal from './AddFeedModal';
 import ChatModal from './ChatModal';
 
@@ -18,7 +18,7 @@ interface OutletContextType {
   onSelectedIndexChange: (index: number) => void;
   onSelectedEntryIdChange: (id: number | null) => void;
   selectedEntryId: number | null;
-  onOpenChat: (entry: FeedEntry) => void;
+  onOpenChat: (entry: FeedEntryWithTitle) => void;
 }
 
 const Layout: React.FC = () => {
@@ -39,7 +39,7 @@ const Layout: React.FC = () => {
   const [searchHistory, setSearchHistory] = useState<SavedSearch[]>([]);
   const [showAddFeedModal, setShowAddFeedModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
-  const [selectedEntry, setSelectedEntry] = useState<FeedEntry | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<FeedEntryWithTitle | null>(null);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
 
   // Create a ref to store the focusSearch callback from Header
@@ -83,7 +83,7 @@ const Layout: React.FC = () => {
 
     try {
       // Get the entry from the database to find its feed ID
-      const entry = await db.entries.get(parseInt(currentArticle.id));
+      const entry = await db.entries.get(currentArticle.id.toString());
       if (!entry) return;
 
       // Navigate to the feed view with the article ID as a search param
@@ -264,7 +264,11 @@ const Layout: React.FC = () => {
           } else if (selectedEntryId !== null) {
             const entry = await db.entries.get(selectedEntryId);
             if (entry) {
-              setSelectedEntry(entry);
+              const feed = await db.feeds.get(entry.feedId!);
+              setSelectedEntry({
+                ...entry,
+                feedTitle: feed?.title || 'Unknown Feed'
+              });
               setShowChatModal(true);
               // Mark as read when opening
               db.entries.update(selectedEntryId, { isRead: true });
@@ -289,13 +293,26 @@ const Layout: React.FC = () => {
             const entry = await db.entries.get(selectedEntryId);
             if (entry) {
               console.log('Adding to TTS queue:', entry.title);
-              ttsService.addToQueue(entry);
+              const ttsEntry = {
+                ...entry,
+                id: entry.id!,
+                content: entry.content_fullArticle || entry.content_rssAbstract,
+                chatHistory: entry.chatHistory
+                  ?.filter(msg => msg.role === 'user' || msg.role === 'assistant')
+                  .map((msg, index) => ({
+                    id: index,
+                    role: msg.role as 'user' | 'assistant',
+                    content: msg.content,
+                    timestamp: new Date()
+                  }))
+              };
+              ttsService.addToQueue(ttsEntry);
             }
           }
           break;
         case ']':
           if (!sidebarFocused) {
-            e.preventDefault();
+            e.preventDefault();\
             ttsService.next();
           }
           break;
@@ -366,7 +383,7 @@ const Layout: React.FC = () => {
     setSidebarFocused(!focused);
   };
 
-  const handleOpenChat = (entry: FeedEntry) => {
+  const handleOpenChat = (entry: FeedEntryWithTitle) => {
     setSelectedEntry(entry);
     setShowChatModal(true);
   };
@@ -401,7 +418,6 @@ const Layout: React.FC = () => {
           setShowUnreadOnly(!showUnreadOnly);
           localStorage.setItem('showUnreadOnly', JSON.stringify(!showUnreadOnly));
         }}
-        onFocusChange={handleFocusChange}
         onRegisterFocusSearch={handleFocusSearch}
         showAddFeedModal={showAddFeedModal}
         onCloseAddFeedModal={() => setShowAddFeedModal(false)}

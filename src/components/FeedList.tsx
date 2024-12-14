@@ -1,11 +1,10 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useLocation, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getFeedEntries, getAllEntries, getStarredEntries, getListenedEntries, getFeedsByFolder, markAsRead, toggleStar, type FeedEntry, db } from '../services/db';
+import { getFeedEntries, getAllEntries, getStarredEntries, getListenedEntries, getFeedsByFolder, markAsRead, toggleStar, type FeedEntryWithTitle, db } from '../services/db';
 import ChatModal from './ChatModal';
 import ttsService from '../services/ttsService';
 import FeedListEntry from './FeedListEntry';
-import { PaginationService, PaginationState } from '../services/paginationService';
-import { Pagination } from './Pagination';
+import { PaginationService, type PaginationState } from '../services/paginationService';
 import { refreshFeed } from '../services/feedParser';
 
 interface ContextType {
@@ -17,14 +16,15 @@ interface ContextType {
   onSelectedIndexChange: (index: number) => void;
   selectedEntryId: number | null;
   onSelectedEntryIdChange: (id: number | null) => void;
+  onEntriesUpdate?: (entries: FeedEntryWithTitle[]) => void;
 }
 
 interface FeedListProps {
   isDarkMode?: boolean;
   isFocused?: boolean;
   onFocusChange?: (focused: boolean) => void;
-  entries?: FeedEntry[];
-  onEntriesUpdate?: (entries: FeedEntry[]) => void;
+  entries?: FeedEntryWithTitle[];
+  onEntriesUpdate?: (entries: FeedEntryWithTitle[]) => void;
 }
 
 const FeedList: React.FC<FeedListProps> = (props) => {
@@ -36,9 +36,9 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const selectedIndex = context.selectedIndex;
   const onSelectedIndexChange = context.onSelectedIndexChange;
 
-  const [entries, setEntries] = useState<FeedEntry[]>([]);
+  const [entries, setEntries] = useState<FeedEntryWithTitle[]>([]);
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatEntry, setChatEntry] = useState<FeedEntry | null>(null);
+  const [chatEntry, setChatEntry] = useState<FeedEntryWithTitle | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const readTimerRef = useRef<{ [key: number]: NodeJS.Timeout }>({});
   const contentRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
@@ -48,14 +48,14 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const [expandedEntries, setExpandedEntries] = useState<{ [key: number]: boolean }>({});
   const [searchParams] = useSearchParams();
   const [currentPage, setCurrentPage] = useState(1);
-  const [paginatedState, setPaginatedState] = useState<PaginationState<FeedEntry>>({
+  const [paginatedState, setPaginatedState] = useState<PaginationState<FeedEntryWithTitle>>({
     items: [],
     currentPage: 1,
     totalItems: 0,
     itemsPerPage: 20,
     totalPages: 0
   });
-  const paginationService = new PaginationService<FeedEntry>(20);
+  const paginationService = new PaginationService<FeedEntryWithTitle>(20);
 
   // Filter entries based on showUnreadOnly
   const filteredEntries = useMemo(() => {
@@ -165,7 +165,9 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   }, []);
 
   const handleSpaceKey = useCallback((entryId: number) => {
-    const contentLength = getContentLength(entries.find(e => e.id === entryId)?.content || '');
+    const entry = entries.find(e => e.id === entryId);
+    const content = entry?.content_fullArticle || entry?.content_rssAbstract || '';
+    const contentLength = getContentLength(content);
     if (contentLength <= 600) return;
 
     // If not expanded, expand it
@@ -214,7 +216,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   useEffect(() => {
     const loadEntries = async () => {
       try {
-        let loadedEntries: FeedEntry[];
+        let loadedEntries: FeedEntryWithTitle[];
         
         if (props.entries) {
           loadedEntries = props.entries;
@@ -275,7 +277,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     }));
   }, [entries]);
 
-  const handleContentView = useCallback((entry: FeedEntry) => {
+  const handleContentView = useCallback((entry: FeedEntryWithTitle) => {
     if (!entry.id || entry.isRead) return;
 
     // Set a timer to mark as read after dwelling
@@ -294,75 +296,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       delete readTimerRef.current[entry.id!];
     }, 2000); // 2 second dwell time
   }, [entries, props.onEntriesUpdate]);
-
-  const getExcerpt = (content: string) => {
-    const div = document.createElement('div');
-    div.innerHTML = content;
-    const text = div.textContent || div.innerText || '';
-    return text.slice(0, 100) + (text.length > 100 ? '...' : '');
-  };
-
-  const formatDate = (date: Date) => {
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const minutes = Math.floor(diff / (1000 * 60));
-
-    if (days > 7) {
-      return date.toLocaleDateString();
-    } else if (days > 0) {
-      return `${days}d ago`;
-    } else if (hours > 0) {
-      return `${hours}h ago`;
-    } else if (minutes > 0) {
-      return `${minutes}m ago`;
-    } else {
-      return 'just now';
-    }
-  };
-
-  // Style classes for markdown content
-  const markdownClass = `prose prose-sm max-w-none 
-    ${isDarkMode ? 'prose-invert prose-p:text-gray-300' : 'prose-p:text-gray-600'}
-    prose-p:my-0 prose-headings:my-1 prose-ul:my-1 prose-ol:my-1
-    prose-pre:bg-gray-800 prose-pre:text-gray-100
-    prose-code:text-blue-500 prose-code:bg-gray-100 prose-code:rounded prose-code:px-1
-    prose-a:text-blue-500 hover:prose-a:text-blue-600
-    ${isDarkMode ? 'prose-code:bg-gray-700' : ''}`;
-
-  const getPreviewContent = (content: string, expanded: boolean) => {
-    const contentLength = getContentLength(content);
-    
-    // If content is short, always show full content
-    if (contentLength <= 600) return content;
-    
-    // Otherwise, handle expansion/collapse
-    if (expanded) return content;
-    
-    // Find the position in the HTML that corresponds to ~500 characters of text
-    let charCount = 0;
-    let result = '';
-    const div = document.createElement('div');
-    div.innerHTML = content;
-    const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT);
-    
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      if (charCount + node.textContent!.length > 500) {
-        // Add the portion of this text node that gets us to ~500 chars
-        const remainingChars = 500 - charCount;
-        result += node.textContent!.slice(0, remainingChars);
-        break;
-      }
-      charCount += node.textContent!.length;
-      result += node.textContent;
-    }
-
-    // Get the HTML up to where we stopped
-    const endIndex = content.indexOf(result) + result.length;
-    return content.slice(0, endIndex) + '...';
-  };
 
   // Add handler for page changes
   const handlePageChange = useCallback((page: number) => {
@@ -443,11 +376,11 @@ const FeedList: React.FC<FeedListProps> = (props) => {
 
   // Keep the existing database hook for other updates
   useEffect(() => {
-    let subscription: { unsubscribe: () => void } | undefined;
+    let unsubscribe: () => void;
     
-    const setupSubscription = () => {
+    const setupSubscription = (): (() => void) => {
       try {
-        subscription = db.entries.hook('updating', (modifications, primKey, obj, transaction) => {
+        db.entries.hook('updating', (modifications: any) => {
           if (modifications.isStarred !== undefined) {
             const loadEntries = async () => {
               const loadedEntries = props.entries 
@@ -464,17 +397,19 @@ const FeedList: React.FC<FeedListProps> = (props) => {
             loadEntries();
           }
         });
+        return () => {};
       } catch (error) {
         console.error('Error setting up database subscription:', error);
+        return () => {};
       }
     };
 
-    setupSubscription();
+    unsubscribe = setupSubscription();
 
     return () => {
-      if (subscription?.unsubscribe) {
+      if (unsubscribe) {
         try {
-          subscription.unsubscribe();
+          unsubscribe();
         } catch (error) {
           console.error('Error unsubscribing from database:', error);
         }
@@ -571,7 +506,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
           }}
           isDarkMode={isDarkMode}
           articleTitle={chatEntry.title}
-          articleContent={chatEntry.content}
+          articleContent={chatEntry.content_fullArticle || chatEntry.content_rssAbstract || ''}
           articleUrl={chatEntry.link}
           entryId={chatEntry.id!}
           feedTitle={chatEntry.feedTitle}

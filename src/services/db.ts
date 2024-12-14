@@ -46,6 +46,7 @@ interface FeedEntryWithTitle extends FeedEntry {
 }
 
 interface ChatMessage {
+  id: string;
   role: 'user' | 'assistant' | 'system' | 'article';
   content: string;
   timestamp: Date;
@@ -300,7 +301,7 @@ export async function toggleStar(entryId: number) {
 
 export async function getFeedsByFolder(folderId?: number | null) {
   if (folderId === undefined || folderId === null) {
-    return await db.feeds.where('folderId').equals(undefined).toArray();
+    return await db.feeds.filter(feed => feed.folderId === undefined || feed.folderId === null).toArray();
   }
   return await db.feeds.where('folderId').equals(folderId).toArray();
 }

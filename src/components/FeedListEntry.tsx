@@ -1,11 +1,11 @@
 import React, { useRef, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { type FeedEntry, type ChatMessage, subscribeToEntryUpdates, db } from '../services/db';
+import { type FeedEntryWithTitle, type ChatMessage, subscribeToEntryUpdates, db } from '../services/db';
 import { reprocessEntry } from '../services/feedParser';
 
 interface FeedListEntryProps {
-  entry: FeedEntry;
+  entry: FeedEntryWithTitle;
   index: number;
   isSelected: boolean;
   isFocused: boolean;
@@ -17,15 +17,10 @@ interface FeedListEntryProps {
   onMarkAsRead: (entryId: number) => void;
   onToggleStar: (entryId: number) => void;
   onToggleExpand: (entryId: number) => void;
-  onContentView: (entry: FeedEntry) => void;
+  onContentView: (entry: FeedEntryWithTitle) => void;
   onContentLeave: (entryId: number) => void;
   contentRef: (element: HTMLDivElement | null) => void;
-  onOpenChat?: (entry: FeedEntry) => void;
-}
-
-interface FormattedContent {
-  html: string;
-  text: string;
+  onOpenChat?: (entry: FeedEntryWithTitle) => void;
 }
 
 const FeedListEntry: React.FC<FeedListEntryProps> = ({
@@ -59,15 +54,21 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     if (entry.id) {
       const unsubscribe = subscribeToEntryUpdates(async (updatedEntryId) => {
         if (updatedEntryId === entry.id) {
-          // Fetch the updated entry
+          // Fetch the updated entry and feed title
           const updated = await db.entries.get(entry.id);
           if (updated) {
-            setCurrentEntry(updated);
+            const feed = await db.feeds.get(updated.feedId!);
+            setCurrentEntry({
+              ...updated,
+              feedTitle: feed?.title || 'Unknown Feed'
+            });
           }
         }
       });
       
-      return () => unsubscribe();
+      return () => {
+        unsubscribe();
+      };
     }
   }, [entry.id]);
 
@@ -138,13 +139,6 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     return (div.textContent || div.innerText || '').length;
   };
 
-  const getExcerpt = (content: string) => {
-    const div = document.createElement('div');
-    div.innerHTML = content;
-    const text = div.textContent || div.innerText || '';
-    return text.slice(0, 100) + (text.length > 100 ? '...' : '');
-  };
-
   const formatDate = (date: Date) => {
     const now = new Date();
     const diff = now.getTime() - date.getTime();
@@ -165,7 +159,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     }
   };
 
-  const hasChatHistory = (entry: FeedEntry) => {
+  const hasChatHistory = (entry: FeedEntryWithTitle) => {
     if (!entry.chatHistory || entry.chatHistory.length === 0) return false;
     const hasUserMessage = entry.chatHistory.some(msg => msg.role === 'user');
     const hasAssistantMessage = entry.chatHistory.some(msg => msg.role === 'assistant');
@@ -214,7 +208,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     });
   };
 
-  const formatForSharing = (entry: FeedEntry): string => {
+  const formatForSharing = (entry: FeedEntryWithTitle): string => {
     const parts = [
       `${entry.title}`,
       entry.feedTitle ? `From: ${entry.feedTitle}` : '',

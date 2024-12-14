@@ -2,6 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { getUnreadEntries, getMostRecentEntry } from '../../services/db';
 
+interface EntryReadEvent extends CustomEvent {
+  detail: {
+    feedId: number | null;
+  };
+}
+
 interface SidebarFeedItemProps {
   id: number;
   path: string;
@@ -14,7 +20,7 @@ interface SidebarFeedItemProps {
   isRefreshing: boolean;
   onSelect: (index: number) => void;
   onFocusChange: (focused: boolean) => void;
-  onUnreadCountChange?: (feedId: number, count: number) => void;
+  onDelete: () => Promise<void>;
 }
 
 const getBadgeColors = (timestamp: Date | null, isDarkMode: boolean): string => {
@@ -51,7 +57,7 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
   isRefreshing,
   onSelect,
   onFocusChange,
-  onUnreadCountChange,
+  onDelete,
 }) => {
   const [localUnreadCount, setLocalUnreadCount] = useState<number | null>(null);
   const [isLoadingCount, setIsLoadingCount] = useState(true);
@@ -85,7 +91,6 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
       // Only update if count has changed or is initial value
       if (localUnreadCount === null || count !== previousCountRef.current) {
         setLocalUnreadCount(count);
-        onUnreadCountChange?.(id, count);
         previousCountRef.current = count;
       }
     } catch (error) {
@@ -94,7 +99,6 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
         // Only set to 0 if we don't have a previous value
         if (localUnreadCount === null) {
           setLocalUnreadCount(0);
-          onUnreadCountChange?.(id, 0);
         }
       }
     } finally {
@@ -102,7 +106,7 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
         setIsLoadingCount(false);
       }
     }
-  }, [id, onUnreadCountChange, localUnreadCount]);
+  }, [id, localUnreadCount]);
 
   // Initial load
   useEffect(() => {
@@ -135,16 +139,16 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
 
   // Listen for entry read updates
   useEffect(() => {
-    const handleEntryRead = async (event: CustomEvent) => {
+    const handleEntryRead = async (event: EntryReadEvent) => {
       const { feedId } = event.detail;
       if ((feedId === id || feedId === null) && isMountedRef.current) {
         await updateUnreadCount();
       }
     };
 
-    window.addEventListener('entryMarkedAsRead', handleEntryRead as EventListener);
+    window.addEventListener('entryMarkedAsRead', handleEntryRead as unknown as EventListener);
     return () => {
-      window.removeEventListener('entryMarkedAsRead', handleEntryRead as EventListener);
+      window.removeEventListener('entryMarkedAsRead', handleEntryRead as unknown as EventListener);
     };
   }, [id, updateUnreadCount]);
 

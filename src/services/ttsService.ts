@@ -1,8 +1,8 @@
-import { Entry } from '../types/Entry';
+import { type FeedEntry } from './db';
 import { db, markAsListened } from './db';
 
 interface QueuedArticle {
-  id: string;
+  id: number;
   title: string;
   source: string;
   summary?: string;
@@ -185,7 +185,7 @@ class TTSService {
     oscillator.stop(this.audioContext.currentTime + 0.3);
   }
 
-  async addToQueue(entry: Entry) {
+  async addToQueue(entry: FeedEntry) {
     // Check if the article is currently playing
     if (this.currentArticle?.id === entry.id) {
       this.playDuplicateSound();
@@ -193,7 +193,7 @@ class TTSService {
     }
 
     // Check if the article is already in the queue
-    if (this.queue.some(article => article.id === entry.id)) {
+    if (this.queue.some(article => article.id !== undefined && article.id === entry.id)) {
       this.playDuplicateSound();
       return;
     }
@@ -218,7 +218,7 @@ class TTSService {
     const cleanSummary = entry.content_aiSummary ? this.cleanTextForSpeech(entry.content_aiSummary) : undefined;
 
     const article: QueuedArticle = {
-      id: entry.id,
+      id: entry.id!,
       title: entry.title,
       source,
       summary: cleanSummary,
@@ -286,7 +286,7 @@ class TTSService {
     // Set up completion handling
     content.onend = async () => {
       // Mark article as listened
-      await markAsListened(parseInt(article.id));
+      await markAsListened(article.id);
 
       // Remove the current article from the queue
       this.queue = this.queue.filter((_, index) => index !== this.currentArticleIndex);

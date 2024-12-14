@@ -397,12 +397,14 @@ const Sidebar: React.FC<SidebarProps> = ({
         for (const entry of top5) {
           const ttsEntry = {
             ...entry,
-            id: entry.id!.toString(),
+            id: entry.id!,
             chatHistory: entry.chatHistory
               ?.filter(msg => msg.role === 'user' || msg.role === 'assistant')
-              .map(msg => ({
+              .map((msg, index) => ({
+                id: index,
                 role: msg.role as 'user' | 'assistant',
-                content: msg.content
+                content: msg.content,
+                timestamp: new Date()
               }))
           };
           await ttsService.addToQueue(ttsEntry);
@@ -521,6 +523,8 @@ const Sidebar: React.FC<SidebarProps> = ({
               onDeleteFeed={handleDeleteFeed}
               onUpdateFeedOrder={handleUpdateFeedOrder}
               onUpdateFolderOrder={handleUpdateFolderOrder}
+              onRenameFolder={handleRenameFolder}
+              onRenameFeed={handleRenameFeed}
               onOpenSearch={onOpenSearch}
             />
             {!isSearchesCollapsed && searchItems.map((item) => {
@@ -639,7 +643,6 @@ const Sidebar: React.FC<SidebarProps> = ({
                 id={feed.id!}
                 path={`/feed/${feed.id}`}
                 title={feed.title}
-                unreadCount={feed.unreadCount}
                 isActive={location.pathname === `/feed/${feed.id}`}
                 isSelected={selectedIndex === itemIndex}
                 isDarkMode={isDarkMode}

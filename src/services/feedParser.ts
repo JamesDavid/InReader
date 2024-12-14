@@ -180,7 +180,6 @@ async function processNewEntries(feedId: number, feedTitle: string, items: Parse
     if (isNew) {
       newEntries.push({
         feedId,
-        feedTitle,
         title: item.title,
         content_rssAbstract: convertToMarkdown(item.content),
         link: item.link,

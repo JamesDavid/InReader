@@ -7,16 +7,22 @@ import { getQueueStats } from '../services/requestQueueService';
 
 interface HeaderProps {
   isDarkMode: boolean;
-  showUnreadOnly: boolean;
   onDarkModeToggle: () => void;
+  showUnreadOnly: boolean;
   onShowUnreadToggle: () => void;
+  showAddFeedModal: boolean;
+  onCloseAddFeedModal: () => void;
+  onRegisterFocusSearch: (callback: () => void) => void;
 }
 
 const Header: React.FC<HeaderProps> = ({ 
   isDarkMode, 
   showUnreadOnly,
   onDarkModeToggle,
-  onShowUnreadToggle
+  onShowUnreadToggle,
+  showAddFeedModal,
+  onCloseAddFeedModal,
+  onRegisterFocusSearch
 }) => {
   const [isOllamaModalOpen, setIsOllamaModalOpen] = useState(false);
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
