@@ -591,4 +591,13 @@ export async function updateRequestStatus(
   return await db.entries.update(entryId, update);
 }
 
+export async function getMostRecentEntry(feedId: number): Promise<FeedEntry | undefined> {
+  return await db.entries
+    .where('feedId')
+    .equals(feedId)
+    .reverse()
+    .sortBy('publishDate')
+    .then(entries => entries[0]);
+}
+
 export type { Feed, FeedEntry, Folder, SavedSearch, ChatMessage }; 

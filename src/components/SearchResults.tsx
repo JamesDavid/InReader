@@ -8,13 +8,14 @@ interface ContextType {
   isDarkMode: boolean;
   onFocusChange: (focused: boolean) => void;
   onSearchHistoryUpdate: () => void;
+  onSearchResultTimestamp?: (query: string, timestamp: Date | null) => void;
 }
 
 const SearchResults: React.FC = () => {
   const [entries, setEntries] = useState<FeedEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { query } = useParams<{ query: string }>();
-  const { isDarkMode, isFocused, onFocusChange, onSearchHistoryUpdate } = useOutletContext<ContextType>();
+  const { isDarkMode, isFocused, onFocusChange, onSearchHistoryUpdate, onSearchResultTimestamp } = useOutletContext<ContextType>();
 
   // Reset state when query changes
   useEffect(() => {
@@ -33,14 +34,18 @@ const SearchResults: React.FC = () => {
         const results = await searchEntries(query);
         if (isMounted) {
           setEntries(results);
-          await saveSearch(query);
-          // Update search result counts and history
-          await updateSearchResultCounts();
-          onSearchHistoryUpdate();
+          // Get the most recent timestamp from the results
+          const mostRecentTimestamp = results.length > 0 
+            ? results.reduce((latest, entry) => 
+                entry.publishDate > latest ? entry.publishDate : latest,
+                results[0].publishDate)
+            : null;
+          // Update the parent component with the timestamp
+          onSearchResultTimestamp?.(query, mostRecentTimestamp);
+          setIsLoading(false);
         }
       } catch (error) {
         console.error('Search failed:', error);
-      } finally {
         if (isMounted) {
           setIsLoading(false);
         }
@@ -52,7 +57,7 @@ const SearchResults: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [query, onSearchHistoryUpdate]);
+  }, [query, onSearchResultTimestamp]);
 
   // Update entries when a summary is refreshed
   const handleEntriesUpdate = (updatedEntries: FeedEntry[]) => {

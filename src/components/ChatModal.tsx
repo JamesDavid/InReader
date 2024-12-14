@@ -16,6 +16,30 @@ interface ChatModalProps {
   onChatUpdate?: () => void;
 }
 
+interface StarterQuestion {
+  text: string;
+  prompt: string;
+}
+
+const STARTER_QUESTIONS: StarterQuestion[] = [
+  {
+    text: "Summarize Key Points",
+    prompt: "Summarize the most important aspects of this article and provide the response in markdown format."
+  },
+  {
+    text: "Key Questions & Answers",
+    prompt: "What are the most important questions that this article raises, and what are the answers to them? Provide the questions and answers in markdown format."
+  },
+  {
+    text: "Main Arguments",
+    prompt: "What are the main arguments or viewpoints presented in this article? Present them in markdown format with supporting points."
+  },
+  {
+    text: "Key Takeaways",
+    prompt: "What are the key takeaways and practical implications from this article? Present them in a clear markdown list."
+  }
+];
+
 const ChatModal: React.FC<ChatModalProps> = ({ 
   isOpen, 
   onClose, 
@@ -462,6 +486,48 @@ const ChatModal: React.FC<ChatModalProps> = ({
 
           {/* Chat Area - Right Side */}
           <div className={`flex flex-col min-h-0 transition-all duration-300 ${isContentCollapsed ? 'w-full pl-8' : 'w-1/2'}`}>
+            {/* Starter Questions Header */}
+            <div className="mb-4">
+              <div className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                Quick Analysis
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {STARTER_QUESTIONS.map((question, index) => (
+                  <button
+                    key={index}
+                    onClick={async () => {
+                      if (messages.length === 0) {
+                        // Initialize chat first if no messages exist
+                        await initializeChat();
+                      }
+                      setInput(question.prompt);
+                      handleSubmit(new Event('submit') as React.FormEvent);
+                    }}
+                    disabled={isLoading || !fullArticleContent}
+                    className={`px-3 py-1.5 rounded text-sm transition-colors whitespace-nowrap
+                      ${isDarkMode 
+                        ? 'bg-gray-700 hover:bg-gray-600 text-gray-200 disabled:bg-gray-800' 
+                        : 'bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:bg-gray-50'}
+                      flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    <svg 
+                      xmlns="http://www.w3.org/2000/svg" 
+                      className="h-4 w-4" 
+                      viewBox="0 0 20 20" 
+                      fill="currentColor"
+                    >
+                      <path 
+                        fillRule="evenodd" 
+                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" 
+                        clipRule="evenodd" 
+                      />
+                    </svg>
+                    {question.text}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Chat Messages */}
             <div 
               ref={chatContainerRef}

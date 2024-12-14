@@ -40,9 +40,11 @@ interface SidebarProps {
   isDarkMode: boolean;
   onRegisterRefreshFeeds: (callback: () => void) => void;
   searchHistory: SavedSearch[];
+  searchTimestamps: { [query: string]: Date };
   onClearSearchHistory: (searchId?: number) => void;
   selectedIndex: number;
   onSelectedIndexChange: (index: number) => void;
+  onOpenSearch?: () => void;
 }
 
 interface FeedItemWithUnread extends Feed {
@@ -65,9 +67,11 @@ const Sidebar: React.FC<SidebarProps> = ({
   isDarkMode,
   onRegisterRefreshFeeds,
   searchHistory,
+  searchTimestamps,
   onClearSearchHistory,
   selectedIndex,
-  onSelectedIndexChange
+  onSelectedIndexChange,
+  onOpenSearch
 }) => {
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -467,6 +471,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               onDeleteFeed={handleDeleteFeed}
               onUpdateFeedOrder={handleUpdateFeedOrder}
               onUpdateFolderOrder={handleUpdateFolderOrder}
+              onOpenSearch={onOpenSearch}
             />
             {!isSearchesCollapsed && searchItems.map((item) => {
               const itemIndex = visibleItems.findIndex(visibleItem => visibleItem.path === item.path);
@@ -483,6 +488,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   onSelect={onSelectedIndexChange}
                   onFocusChange={onFocusChange}
                   onDelete={item.onDelete}
+                  timestamp={searchTimestamps[item.title.toLowerCase()]}
                 />
               );
             })}

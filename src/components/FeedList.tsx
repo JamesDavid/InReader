@@ -242,6 +242,12 @@ const FeedList: React.FC<FeedListProps> = (props) => {
           loadedEntries = await getStarredEntries();
         } else if (location.pathname === '/listened') {
           loadedEntries = await getListenedEntries();
+          // Sort by listenedDate in descending order
+          loadedEntries.sort((a, b) => {
+            const dateA = a.listenedDate?.getTime() || 0;
+            const dateB = b.listenedDate?.getTime() || 0;
+            return dateB - dateA;
+          });
         } else {
           loadedEntries = await getAllEntries();
         }

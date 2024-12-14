@@ -4,31 +4,23 @@ import OllamaConfigModal from './OllamaConfigModal';
 import VoiceConfigModal from './VoiceConfigModal';
 import TTSQueueStatus from './TTSQueueStatus';
 import { getQueueStats } from '../services/requestQueueService';
-import { saveSearch } from '../services/db';
 
 interface HeaderProps {
   isDarkMode: boolean;
   showUnreadOnly: boolean;
   onDarkModeToggle: () => void;
   onShowUnreadToggle: () => void;
-  onFocusChange?: (focused: boolean) => void;
-  onRegisterFocusSearch?: (callback: () => void) => void;
 }
 
 const Header: React.FC<HeaderProps> = ({ 
   isDarkMode, 
   showUnreadOnly,
   onDarkModeToggle,
-  onShowUnreadToggle,
-  onFocusChange,
-  onRegisterFocusSearch 
+  onShowUnreadToggle
 }) => {
-  const [searchQuery, setSearchQuery] = useState('');
   const [isOllamaModalOpen, setIsOllamaModalOpen] = useState(false);
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
   const [queueStats, setQueueStats] = useState({ size: 0, pending: 0 });
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const navigate = useNavigate();
 
   // Add queue stats update effect
   useEffect(() => {
@@ -48,50 +40,6 @@ const Header: React.FC<HeaderProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  // Register the focus callback with the parent
-  useEffect(() => {
-    if (onRegisterFocusSearch) {
-      onRegisterFocusSearch(() => {
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-      });
-    }
-  }, [onRegisterFocusSearch]);
-
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedQuery = searchQuery.trim();
-    if (trimmedQuery) {
-      try {
-        // Save the search before navigating
-        await saveSearch(trimmedQuery);
-        navigate(`/search/${encodeURIComponent(trimmedQuery)}`);
-        searchInputRef.current?.blur();
-        if (onFocusChange) {
-          onFocusChange(false);
-        }
-      } catch (error) {
-        console.error('Error saving search:', error);
-      }
-    }
-  };
-
-  const handleSearchFocus = () => {
-    if (onFocusChange) {
-      onFocusChange(true);
-    }
-  };
-
-  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Escape' || (e.key === 'Backspace' && searchQuery === '')) {
-      e.preventDefault();
-      searchInputRef.current?.blur();
-      if (onFocusChange) {
-        onFocusChange(false);
-      }
-    }
-  };
-
   return (
     <>
       <header className={`h-14 border-b ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-reader-border'} flex items-center px-4 justify-between`}>
@@ -99,27 +47,6 @@ const Header: React.FC<HeaderProps> = ({
           <h1 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-reader-blue'}`}>
             InReader
           </h1>
-          <form 
-            onSubmit={handleSearch} 
-            className="relative"
-            action="javascript:void(0);"
-          >
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search entries... (Press '/' to focus)"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={handleSearchFocus}
-              onKeyDown={handleSearchKeyDown}
-              className={`w-96 px-4 py-1.5 rounded-lg 
-                ${isDarkMode 
-                  ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-400' 
-                  : 'bg-gray-100 border-gray-200 text-gray-900 placeholder-gray-500'} 
-                border focus:outline-none focus:ring-2 focus:ring-reader-blue`}
-            />
-            <button type="submit" className="sr-only">Search</button>
-          </form>
         </div>
         <div className="flex items-center gap-2">
           <TTSQueueStatus isDarkMode={isDarkMode} />

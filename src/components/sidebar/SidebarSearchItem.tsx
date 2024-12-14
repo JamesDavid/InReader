@@ -12,7 +12,30 @@ interface SidebarSearchItemProps {
   onFocusChange: (focused: boolean) => void;
   onDelete?: () => void;
   hits?: number;
+  timestamp?: Date;
 }
+
+const getBadgeColors = (timestamp: Date | null, isDarkMode: boolean): string => {
+  if (!timestamp) return isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-200 text-gray-600';
+  
+  const now = new Date();
+  const diff = now.getTime() - timestamp.getTime();
+  const hours = diff / (1000 * 60 * 60);
+
+  if (hours <= 1) {
+    // Less than 1 hour - dark purple
+    return isDarkMode ? 'bg-purple-700 text-white' : 'bg-purple-700 text-white';
+  } else if (hours <= 24) {
+    // Less than 24 hours - dark blue
+    return isDarkMode ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white';
+  } else if (hours <= 168) { // 7 days
+    // Less than a week - light blue
+    return isDarkMode ? 'bg-blue-400 text-white' : 'bg-blue-400 text-white';
+  } else {
+    // Older - gray
+    return isDarkMode ? 'bg-gray-500 text-white' : 'bg-gray-500 text-white';
+  }
+};
 
 const SidebarSearchItem: React.FC<SidebarSearchItemProps> = ({
   path,
@@ -25,6 +48,7 @@ const SidebarSearchItem: React.FC<SidebarSearchItemProps> = ({
   onFocusChange,
   onDelete,
   hits,
+  timestamp,
 }) => {
   const menuItemClass = `
     block px-4 py-2 text-sm transition-colors
@@ -54,9 +78,7 @@ const SidebarSearchItem: React.FC<SidebarSearchItemProps> = ({
           <div className="flex items-center justify-end flex-shrink-0 relative">
             {typeof hits === 'number' && (
               <span className={`text-xs px-2 py-0.5 rounded-full
-                ${isDarkMode 
-                  ? 'bg-reader-blue text-white' 
-                  : 'bg-reader-blue/10 text-reader-blue'}
+                ${getBadgeColors(timestamp || null, isDarkMode)}
                 ${onDelete ? 'group-hover:opacity-0' : ''} transition-opacity`}
               >
                 {hits}

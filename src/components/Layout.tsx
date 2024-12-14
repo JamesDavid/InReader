@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Outlet, useOutletContext, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import SearchModal from './SearchModal';
 import ttsService from '../services/ttsService';
 import { getSavedSearches, deleteSavedSearch, type SavedSearch, db } from '../services/db';
 import AddFeedModal from './AddFeedModal';
@@ -13,11 +14,16 @@ interface OutletContextType {
   showUnreadOnly: boolean;
   onFocusChange: (focused: boolean) => void;
   onSearchHistoryUpdate: () => void;
+  onSearchResultTimestamp: (query: string, timestamp: Date | null) => void;
   selectedIndex: number;
   onSelectedIndexChange: (index: number) => void;
   onSelectedEntryIdChange: (id: number | null) => void;
   selectedEntryId: number | null;
   onOpenChat: (entry: FeedEntry) => void;
+}
+
+interface SearchTimestamps {
+  [query: string]: Date;
 }
 
 const Layout: React.FC = () => {
@@ -39,6 +45,8 @@ const Layout: React.FC = () => {
   const [showAddFeedModal, setShowAddFeedModal] = useState(false);
   const [showChatModal, setShowChatModal] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<FeedEntry | null>(null);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [searchTimestamps, setSearchTimestamps] = useState<SearchTimestamps>({});
 
   // Create a ref to store the focusSearch callback from Header
   const [focusSearchCallback, setFocusSearchCallback] = useState<(() => void) | null>(null);
@@ -261,7 +269,7 @@ const Layout: React.FC = () => {
           break;
         case '/':
           e.preventDefault();
-          focusSearchCallback?.();
+          setIsSearchModalOpen(true);
           break;
         case 'r':
           e.preventDefault();
@@ -355,12 +363,26 @@ const Layout: React.FC = () => {
     setShowChatModal(true);
   };
 
+  const handleOpenSearch = useCallback(() => {
+    setIsSearchModalOpen(true);
+  }, []);
+
+  const handleSearchResultTimestamp = useCallback((query: string, timestamp: Date | null) => {
+    if (timestamp) {
+      setSearchTimestamps(prev => ({
+        ...prev,
+        [query.toLowerCase()]: timestamp
+      }));
+    }
+  }, []);
+
   const outletContext: OutletContextType = {
     isFocused: !sidebarFocused,
     isDarkMode,
     showUnreadOnly,
     onFocusChange: handleFocusChange,
     onSearchHistoryUpdate: loadSearchHistory,
+    onSearchResultTimestamp: handleSearchResultTimestamp,
     selectedIndex: selectedFeedIndex,
     onSelectedIndexChange: setSelectedFeedIndex,
     onSelectedEntryIdChange: setSelectedEntryId,
@@ -394,9 +416,11 @@ const Layout: React.FC = () => {
           isDarkMode={isDarkMode}
           onRegisterRefreshFeeds={handleRegisterRefreshFeeds}
           searchHistory={searchHistory}
+          searchTimestamps={searchTimestamps}
           onClearSearchHistory={handleClearSearchHistory}
           selectedIndex={selectedSidebarIndex}
           onSelectedIndexChange={setSelectedSidebarIndex}
+          onOpenSearch={handleOpenSearch}
         />
         <main 
           className={`flex-grow overflow-auto ${!sidebarFocused ? 'ring-2 ring-reader-blue ring-opacity-50' : ''}`}
@@ -431,6 +455,12 @@ const Layout: React.FC = () => {
           }}
         />
       )}
+      <SearchModal
+        isOpen={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+        isDarkMode={isDarkMode}
+        onSearchHistoryUpdate={loadSearchHistory}
+      />
     </div>
   );
 };

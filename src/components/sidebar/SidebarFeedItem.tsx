@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { getUnreadEntries } from '../../services/db';
+import { getUnreadEntries, getMostRecentEntry } from '../../services/db';
 
 interface SidebarFeedItemProps {
   id: number;
@@ -16,6 +16,28 @@ interface SidebarFeedItemProps {
   onFocusChange: (focused: boolean) => void;
   onUnreadCountChange?: (feedId: number, count: number) => void;
 }
+
+const getBadgeColors = (timestamp: Date | null, isDarkMode: boolean): string => {
+  if (!timestamp) return isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-200 text-gray-600';
+  
+  const now = new Date();
+  const diff = now.getTime() - timestamp.getTime();
+  const hours = diff / (1000 * 60 * 60);
+
+  if (hours <= 1) {
+    // Less than 1 hour - dark purple
+    return isDarkMode ? 'bg-purple-700 text-white' : 'bg-purple-700 text-white';
+  } else if (hours <= 24) {
+    // Less than 24 hours - dark blue
+    return isDarkMode ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white';
+  } else if (hours <= 168) { // 7 days
+    // Less than a week - light blue
+    return isDarkMode ? 'bg-blue-400 text-white' : 'bg-blue-400 text-white';
+  } else {
+    // Older - gray
+    return isDarkMode ? 'bg-gray-500 text-white' : 'bg-gray-500 text-white';
+  }
+};
 
 const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
   id,
@@ -34,6 +56,7 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
   const [localUnreadCount, setLocalUnreadCount] = useState<number | null>(null);
   const [isLoadingCount, setIsLoadingCount] = useState(true);
   const [isHovered, setIsHovered] = useState(false);
+  const [mostRecentTimestamp, setMostRecentTimestamp] = useState<Date | null>(null);
   const previousCountRef = useRef(localUnreadCount);
   const isMountedRef = useRef(true);
 
@@ -49,10 +72,15 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
       if (!isInitialLoad) {
         setIsLoadingCount(true);
       }
-      const unreadEntries = await getUnreadEntries(id);
+      const [unreadEntries, mostRecent] = await Promise.all([
+        getUnreadEntries(id),
+        getMostRecentEntry(id)
+      ]);
       const count = unreadEntries.length;
       
       if (!isMountedRef.current) return;
+
+      setMostRecentTimestamp(mostRecent?.publishDate || null);
 
       // Only update if count has changed or is initial value
       if (localUnreadCount === null || count !== previousCountRef.current) {
@@ -151,11 +179,7 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
           </div>
           <div className="flex items-center justify-end flex-shrink-0">
             {localUnreadCount !== null && localUnreadCount > 0 && (
-              <span className={`text-xs px-2 py-0.5 rounded-full
-                ${isDarkMode 
-                  ? 'bg-reader-blue text-white' 
-                  : 'bg-reader-blue/10 text-reader-blue'}`}
-              >
+              <span className={`text-xs px-2 py-0.5 rounded-full ${getBadgeColors(mostRecentTimestamp, isDarkMode)}`}>
                 {localUnreadCount}
               </span>
             )}

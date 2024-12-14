@@ -51,7 +51,9 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({
     if (type === 'searches') {
       return (
         <button
-          onClick={onOpenSearch}
+          onClick={() => {
+            onOpenSearch?.();
+          }}
           className={`p-1 rounded transition-colors ${
             isDarkMode 
               ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
@@ -59,7 +61,7 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({
           }`}
           title="Search feeds"
         >
-          <MagnifyingGlassIcon className="w-4 h-4" />
+          <MagnifyingGlassIcon className="h-4 w-4" />
         </button>
       );
     }
