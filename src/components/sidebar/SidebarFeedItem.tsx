@@ -14,7 +14,6 @@ interface SidebarFeedItemProps {
   isRefreshing: boolean;
   onSelect: (index: number) => void;
   onFocusChange: (focused: boolean) => void;
-  onDelete: () => void;
   onUnreadCountChange?: (feedId: number, count: number) => void;
 }
 
@@ -30,7 +29,6 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
   isRefreshing,
   onSelect,
   onFocusChange,
-  onDelete,
   onUnreadCountChange,
 }) => {
   const [localUnreadCount, setLocalUnreadCount] = useState<number | null>(null);
@@ -151,32 +149,15 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
             )}
             <span className="truncate" title={title}>{truncateTitle(title)}</span>
           </div>
-          <div className="flex items-center justify-end flex-shrink-0 relative">
+          <div className="flex items-center justify-end flex-shrink-0">
             {localUnreadCount !== null && localUnreadCount > 0 && (
-              <span className={`text-xs px-2 py-0.5 rounded-full absolute right-2
+              <span className={`text-xs px-2 py-0.5 rounded-full
                 ${isDarkMode 
                   ? 'bg-reader-blue text-white' 
-                  : 'bg-reader-blue/10 text-reader-blue'}
-                ${onDelete ? 'group-hover:opacity-0' : ''} transition-opacity`}
+                  : 'bg-reader-blue/10 text-reader-blue'}`}
               >
                 {localUnreadCount}
               </span>
-            )}
-            {onDelete && (
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  onDelete();
-                }}
-                className={`opacity-0 group-hover:opacity-100 p-1.5 rounded transition-colors absolute right-2
-                  ${isDarkMode 
-                    ? 'hover:bg-gray-600 text-gray-400 hover:text-gray-200' 
-                    : 'hover:bg-gray-200 text-gray-500 hover:text-gray-700'}`}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </button>
             )}
           </div>
         </div>

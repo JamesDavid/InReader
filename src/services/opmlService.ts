@@ -61,65 +61,71 @@ export async function importOpml(opmlContent: string): Promise<{ feeds: number; 
 }
 
 export async function exportOpml(): Promise<string> {
-  const feeds = await db.feeds.toArray();
-  const folders = await db.folders.toArray();
-  
-  const doc = document.implementation.createDocument(null, 'opml', null);
-  doc.documentElement.setAttribute('version', '2.0');
-  
-  const head = doc.createElement('head');
-  const title = doc.createElement('title');
-  title.textContent = 'RSS Reader Feeds Export';
-  head.appendChild(title);
-  doc.documentElement.appendChild(head);
-  
-  const body = doc.createElement('body');
-  
-  // Create folder map for quick lookup
-  const folderMap = new Map(folders.map(f => [f.id, f]));
-  
-  // Group feeds by folder
-  const feedsByFolder = new Map<number | undefined, Feed[]>();
-  feeds.forEach(feed => {
-    const list = feedsByFolder.get(feed.folderId) || [];
-    list.push(feed);
-    feedsByFolder.set(feed.folderId, list);
-  });
-  
-  // Add feeds in folders
-  folders.forEach(folder => {
-    const folderFeeds = feedsByFolder.get(folder.id);
-    if (folderFeeds?.length) {
-      const folderOutline = doc.createElement('outline');
-      folderOutline.setAttribute('text', folder.name);
-      folderOutline.setAttribute('title', folder.name);
-      
-      folderFeeds.forEach(feed => {
-        const feedOutline = doc.createElement('outline');
-        feedOutline.setAttribute('type', 'rss');
-        feedOutline.setAttribute('text', feed.title);
-        feedOutline.setAttribute('title', feed.title);
-        feedOutline.setAttribute('xmlUrl', feed.url);
-        folderOutline.appendChild(feedOutline);
-      });
-      
-      body.appendChild(folderOutline);
+  try {
+    // Get all feeds with explicit toArray() and error checking
+    const feeds = await db.feeds.toArray();
+    console.log(`Found ${feeds.length} total feeds in database:`, 
+      feeds.map(f => ({ id: f.id, title: f.title, url: f.url })));
+    
+    const folders = await db.folders.toArray();
+    console.log(`Found ${folders.length} folders in database:`, 
+      folders.map(f => ({ id: f.id, name: f.name })));
+    
+    if (feeds.length === 0) {
+      console.warn('No feeds found in database for OPML export');
+      return '<?xml version="1.0" encoding="UTF-8"?><opml version="2.0"><head><title>RSS Reader Feeds Export</title></head><body></body></opml>';
     }
-  });
-  
-  // Add unorganized feeds
-  const unorganizedFeeds = feedsByFolder.get(undefined) || [];
-  unorganizedFeeds.forEach(feed => {
-    const feedOutline = doc.createElement('outline');
-    feedOutline.setAttribute('type', 'rss');
-    feedOutline.setAttribute('text', feed.title);
-    feedOutline.setAttribute('title', feed.title);
-    feedOutline.setAttribute('xmlUrl', feed.url);
-    body.appendChild(feedOutline);
-  });
-  
-  doc.documentElement.appendChild(body);
-  
-  const serializer = new XMLSerializer();
-  return serializer.serializeToString(doc);
+    
+    const doc = document.implementation.createDocument(null, 'opml', null);
+    doc.documentElement.setAttribute('version', '2.0');
+    
+    const head = doc.createElement('head');
+    const title = doc.createElement('title');
+    title.textContent = 'RSS Reader Feeds Export';
+    const dateCreated = doc.createElement('dateCreated');
+    dateCreated.textContent = new Date().toISOString();
+    head.appendChild(title);
+    head.appendChild(dateCreated);
+    doc.documentElement.appendChild(head);
+    
+    const body = doc.createElement('body');
+    
+    // Since we have no folders, all feeds should be unorganized
+    const unorganizedOutline = doc.createElement('outline');
+    unorganizedOutline.setAttribute('text', 'Unorganized');
+    unorganizedOutline.setAttribute('title', 'Unorganized');
+    
+    // Add all feeds to the unorganized section
+    for (const feed of feeds) {
+      const feedOutline = doc.createElement('outline');
+      feedOutline.setAttribute('type', 'rss');
+      feedOutline.setAttribute('text', feed.title);
+      feedOutline.setAttribute('title', feed.title);
+      feedOutline.setAttribute('xmlUrl', feed.url);
+      unorganizedOutline.appendChild(feedOutline);
+    }
+    
+    body.appendChild(unorganizedOutline);
+    doc.documentElement.appendChild(body);
+    
+    const serializer = new XMLSerializer();
+    const output = serializer.serializeToString(doc);
+    
+    // Verify the output contains all feeds
+    const exportedUrls = output.match(/xmlUrl="([^"]+)"/g)?.length || 0;
+    console.log(`OPML export complete. Contains ${exportedUrls} feeds out of ${feeds.length} total feeds`);
+    
+    if (exportedUrls !== feeds.length) {
+      console.error('Not all feeds were exported!', {
+        totalFeeds: feeds.length,
+        exportedFeeds: exportedUrls,
+        output
+      });
+    }
+    
+    return output;
+  } catch (error) {
+    console.error('Error during OPML export:', error);
+    throw error;
+  }
 } 

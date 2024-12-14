@@ -30,7 +30,7 @@ const SidebarSearchItem: React.FC<SidebarSearchItemProps> = ({
     block px-4 py-2 text-sm transition-colors
     ${isActive ? (isDarkMode ? 'bg-gray-700' : 'bg-reader-hover') : ''}
     ${isSelected ? (isDarkMode ? 'ring-2 ring-reader-blue ring-opacity-50' : 'ring-2 ring-reader-blue ring-opacity-50') : ''}
-    ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-reader-hover'}
+    ${isDarkMode ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'}
   `;
 
   return (
@@ -45,13 +45,18 @@ const SidebarSearchItem: React.FC<SidebarSearchItemProps> = ({
         }}
       >
         <div className="flex items-center w-full">
-          <span className="truncate flex-grow">{title}</span>
+          <div className="flex items-center gap-2 flex-grow">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+            </svg>
+            <span className="truncate">{title}</span>
+          </div>
           <div className="flex items-center justify-end flex-shrink-0 relative">
             {typeof hits === 'number' && (
-              <span className={`text-xs px-2 py-0.5 rounded-full absolute right-2
+              <span className={`text-xs px-2 py-0.5 rounded-full
                 ${isDarkMode 
-                  ? 'bg-gray-600 text-gray-200' 
-                  : 'bg-gray-200 text-gray-700'}
+                  ? 'bg-reader-blue text-white' 
+                  : 'bg-reader-blue/10 text-reader-blue'}
                 ${onDelete ? 'group-hover:opacity-0' : ''} transition-opacity`}
               >
                 {hits}

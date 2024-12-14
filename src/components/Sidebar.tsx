@@ -88,6 +88,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   // Create search items from search history
   const searchItems = useMemo(() => 
     searchHistory.map(search => ({
+      id: search.id,
       path: `/search/${encodeURIComponent(search.query)}`,
       title: search.query,
       hits: search.resultCount,
@@ -95,6 +96,18 @@ const Sidebar: React.FC<SidebarProps> = ({
         await onClearSearchHistory(search.id!);
       }
     })), [searchHistory, onClearSearchHistory]);
+
+  // Add this effect to log search history updates
+  useEffect(() => {
+    console.log('Search history updated:', searchHistory);
+  }, [searchHistory]);
+
+  // Add this effect to update visible items when search history changes
+  useEffect(() => {
+    if (searchHistory.length > 0 && isSearchesCollapsed) {
+      setIsSearchesCollapsed(false);
+    }
+  }, [searchHistory.length]);
 
   // Create feed items
   const feedItems = useMemo(() => {
@@ -244,10 +257,28 @@ const Sidebar: React.FC<SidebarProps> = ({
       const feedIds = feeds.map(feed => feed.id!);
       setRefreshingFeeds(new Set(feedIds));
 
-      // Refresh feeds first
-      await Promise.all(feeds.map(feed => refreshFeed(feed)));
+      // Refresh feeds concurrently but track individual completion
+      await Promise.all(feeds.map(async feed => {
+        try {
+          await refreshFeed(feed);
+          // Remove this feed from refreshing set when it completes
+          setRefreshingFeeds(prev => {
+            const next = new Set(prev);
+            next.delete(feed.id!);
+            return next;
+          });
+        } catch (error) {
+          console.error(`Error refreshing feed ${feed.title}:`, error);
+          // Still remove from refreshing set even if it fails
+          setRefreshingFeeds(prev => {
+            const next = new Set(prev);
+            next.delete(feed.id!);
+            return next;
+          });
+        }
+      }));
       
-      // Update feeds without waiting for unread counts
+      // Update feeds data
       const [feedsData] = await Promise.all([
         getAllFeeds(),
       ]);
@@ -255,33 +286,12 @@ const Sidebar: React.FC<SidebarProps> = ({
       const sortedFeeds = feedsData.sort((a, b) => (a.order || 0) - (b.order || 0));
       setFeeds(sortedFeeds);
 
-      // Update unread counts asynchronously
-      const updateUnreadCounts = async () => {
-        const unreadPromises = sortedFeeds.map(async feed => {
-          const unreadEntries = await getUnreadEntries(feed.id);
-          return {
-            ...feed,
-            unreadCount: unreadEntries.length
-          };
-        });
-
-        for (const promise of unreadPromises) {
-          const feedWithUnread = await promise;
-          setFeeds(currentFeeds => 
-            currentFeeds.map(feed => 
-              feed.id === feedWithUnread.id ? feedWithUnread : feed
-            )
-          );
-        }
-      };
-
-      updateUnreadCounts();
+      // Update search results
       await updateSearchResultCounts();
     } catch (error) {
       console.error('Error refreshing feeds:', error);
     } finally {
       setIsRefreshing(false);
-      setRefreshingFeeds(new Set());
     }
   }, [feeds, isRefreshing]);
 
@@ -450,9 +460,6 @@ const Sidebar: React.FC<SidebarProps> = ({
               type="searches"
               isCollapsed={isSearchesCollapsed}
               onToggleCollapse={() => setIsSearchesCollapsed(!isSearchesCollapsed)}
-              onOpenSearch={() => {
-                // Add your search modal open handler here
-              }}
               folders={[]}
               feeds={[]}
               onCreateFolder={handleCreateFolder}

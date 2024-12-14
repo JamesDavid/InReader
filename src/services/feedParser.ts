@@ -1,4 +1,4 @@
-import { addEntry, addFeed, type Feed, type FeedEntry, db } from './db';
+import { addEntry, addFeed, type Feed, type FeedEntry, db, notifyEntryUpdate } from './db';
 import { enqueueRequest } from './requestQueueService';
 import { fetchArticleContent } from './articleService';
 import { generateSummary, loadOllamaConfig } from './ollamaService';
@@ -67,6 +67,7 @@ async function processEntry(entryId: number) {
       content_fullArticle: undefined,
       aiSummaryMetadata: undefined
     });
+    notifyEntryUpdate(entryId);
 
     // Step 1: Fetch full article content
     let articleContent;
@@ -80,6 +81,7 @@ async function processEntry(entryId: number) {
       await db.entries.update(entryId, {
         content_fullArticle: articleContent.content
       });
+      notifyEntryUpdate(entryId);
     } catch (error) {
       console.log('Failed to fetch full article, falling back to RSS content:', error);
       // Fall back to RSS content
@@ -104,6 +106,7 @@ async function processEntry(entryId: number) {
           details: 'Open settings to configure Ollama server and models'
         }
       });
+      notifyEntryUpdate(entryId);
       return;
     }
 
@@ -129,6 +132,7 @@ async function processEntry(entryId: number) {
       lastRequestAttempt: new Date(),
       requestError: undefined
     });
+    notifyEntryUpdate(entryId);
 
     return true;
   } catch (error) {
@@ -142,6 +146,7 @@ async function processEntry(entryId: number) {
         details: (error as any).details
       }
     });
+    notifyEntryUpdate(entryId);
     throw error;
   }
 }
@@ -244,6 +249,7 @@ export async function reprocessEntry(entryId: number) {
         details: (error as any).details
       }
     });
+    notifyEntryUpdate(entryId);
     throw error;
   }
 }
@@ -275,8 +281,10 @@ export async function addNewFeed(url: string, folderId?: number) {
 
 export async function refreshFeed(feed: Feed) {
   try {
+    console.log('Starting refresh for feed:', feed.title);
     const parsedFeed = await parseFeed(feed.url);
     await processNewEntries(feed.id!, feed.title, parsedFeed.items);
+    console.log('Completed refresh for feed:', feed.title);
   } catch (error) {
     console.error('Error refreshing feed:', error);
     throw error;

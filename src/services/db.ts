@@ -138,6 +138,19 @@ class ReaderDatabase extends Dexie {
 // Create a singleton instance
 let dbInstance: ReaderDatabase | null = null;
 
+// Event system for entry updates
+type EntryUpdateListener = (entryId: number) => void;
+const entryUpdateListeners = new Set<EntryUpdateListener>();
+
+export function subscribeToEntryUpdates(listener: EntryUpdateListener) {
+  entryUpdateListeners.add(listener);
+  return () => entryUpdateListeners.delete(listener);
+}
+
+export function notifyEntryUpdate(entryId: number) {
+  entryUpdateListeners.forEach(listener => listener(entryId));
+}
+
 // Function to get or create the database instance
 function getDatabase(): ReaderDatabase {
   if (!dbInstance) {
@@ -222,28 +235,34 @@ const withErrorHandling = async <T>(operation: () => Promise<T>): Promise<T> => 
 
 export async function markAsRead(entryId: number) {
   return withErrorHandling(async () => {
-    return await db.entries.update(entryId, { 
+    const result = await db.entries.update(entryId, { 
       isRead: true,
       readDate: new Date()
     });
+    notifyEntryUpdate(entryId);
+    return result;
   });
 }
 
 export async function markAsListened(entryId: number) {
-  return await db.entries.update(entryId, { 
+  const result = await db.entries.update(entryId, { 
     isListened: true,
     listenedDate: new Date()
   });
+  notifyEntryUpdate(entryId);
+  return result;
 }
 
 export async function toggleStar(entryId: number) {
   const entry = await db.entries.get(entryId);
   if (entry) {
     const isStarred = !entry.isStarred;
-    return await db.entries.update(entryId, {
+    const result = await db.entries.update(entryId, {
       isStarred,
       starredDate: isStarred ? new Date() : undefined
     });
+    notifyEntryUpdate(entryId);
+    return result;
   }
 }
 

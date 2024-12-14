@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { type FeedEntry, type ChatMessage } from '../services/db';
+import { type FeedEntry, type ChatMessage, subscribeToEntryUpdates, db } from '../services/db';
 import { reprocessEntry } from '../services/feedParser';
 
 interface FeedListEntryProps {
@@ -47,49 +47,71 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   onOpenChat,
 }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [currentEntry, setCurrentEntry] = useState(entry);
   const articleRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const checkVisibility = () => {
-      if (!articleRef.current) return;
-      
-      const scrollContainer = articleRef.current.closest('.overflow-y-auto');
-      if (!scrollContainer) return;
+    setCurrentEntry(entry);
+  }, [entry]);
 
-      const containerRect = scrollContainer.getBoundingClientRect();
-      const rect = articleRef.current.getBoundingClientRect();
-      const halfwayPoint = containerRect.top + (containerRect.height / 2);
+  useEffect(() => {
+    // Subscribe to updates for this entry
+    if (entry.id) {
+      const unsubscribe = subscribeToEntryUpdates(async (updatedEntryId) => {
+        if (updatedEntryId === entry.id) {
+          // Fetch the updated entry
+          const updated = await db.entries.get(entry.id);
+          if (updated) {
+            setCurrentEntry(updated);
+          }
+        }
+      });
       
-      // Check if the top edge is below the halfway point (scrolling down)
-      if (rect.top > halfwayPoint) {
-        // Calculate the target scroll position (25% from the top)
-        const targetPosition = scrollContainer.scrollTop + (rect.top - containerRect.top) - (containerRect.height * 0.25);
+      return () => unsubscribe();
+    }
+  }, [entry.id]);
+
+  const checkVisibility = () => {
+    if (!articleRef.current) return;
+    
+    const scrollContainer = articleRef.current.closest('.overflow-y-auto');
+    if (!scrollContainer) return;
+
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const rect = articleRef.current.getBoundingClientRect();
+    const halfwayPoint = containerRect.top + (containerRect.height / 2);
+    
+    // Check if the top edge is below the halfway point (scrolling down)
+    if (rect.top > halfwayPoint) {
+      // Calculate the target scroll position (25% from the top)
+      const targetPosition = scrollContainer.scrollTop + (rect.top - containerRect.top) - (containerRect.height * 0.25);
+      scrollContainer.scrollTo({
+        top: targetPosition,
+        behavior: 'smooth'
+      });
+    }
+    // Check if the top edge is above the container's top edge (scrolling up)
+    else if (rect.top < containerRect.top) {
+      // If entry is taller than viewport, align bottom edge with bottom of viewport
+      if (rect.height > containerRect.height) {
+        const targetPosition = scrollContainer.scrollTop + (rect.bottom - containerRect.bottom);
         scrollContainer.scrollTo({
           top: targetPosition,
           behavior: 'smooth'
         });
       }
-      // Check if the top edge is above the container's top edge (scrolling up)
-      else if (rect.top < containerRect.top) {
-        // If entry is taller than viewport, align bottom edge with bottom of viewport
-        if (rect.height > containerRect.height) {
-          const targetPosition = scrollContainer.scrollTop + (rect.bottom - containerRect.bottom);
-          scrollContainer.scrollTo({
-            top: targetPosition,
-            behavior: 'smooth'
-          });
-        }
-        // If entry is shorter than viewport, align top edge with top of viewport
-        else {
-          const targetPosition = scrollContainer.scrollTop + (rect.top - containerRect.top);
-          scrollContainer.scrollTo({
-            top: targetPosition,
-            behavior: 'smooth'
-          });
-        }
+      // If entry is shorter than viewport, align top edge with top of viewport
+      else {
+        const targetPosition = scrollContainer.scrollTop + (rect.top - containerRect.top);
+        scrollContainer.scrollTo({
+          top: targetPosition,
+          behavior: 'smooth'
+        });
       }
-    };
+    }
+  };
 
+  useEffect(() => {
     if (isSelected) {
       // Small delay to let other scroll behaviors complete
       setTimeout(checkVisibility, 0);
@@ -98,11 +120,11 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
 
   const handleRefresh = async (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent article selection when clicking refresh
-    if (!entry.id || isRefreshing) return;
+    if (!currentEntry.id || isRefreshing) return;
     
     setIsRefreshing(true);
     try {
-      await reprocessEntry(entry.id);
+      await reprocessEntry(currentEntry.id);
     } catch (error) {
       console.error('Failed to refresh entry:', error);
     } finally {
@@ -192,62 +214,40 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     });
   };
 
-  const formatForSharing = (entry: FeedEntry): FormattedContent => {
-    // Format the AI summary with preserved paragraph formatting
-    const formatContent = (content: string) => {
-      return content
-        .split('\n')
-        .map(para => para.trim())
-        .filter(para => para.length > 0)
-        .map(para => `<p style="margin: 0 0 16px 0; font-weight: normal;">${para}</p>`)
-        .join('');
-    };
+  const formatForSharing = (entry: FeedEntry): string => {
+    const parts = [
+      `${entry.title}`,
+      entry.feedTitle ? `From: ${entry.feedTitle}` : '',
+      `Published: ${formatDateForCopy(new Date(entry.publishDate))}`,
+      `Source: ${entry.link}`,
+      '',
+      entry.content_aiSummary ? `Summary${
+        entry.aiSummaryMetadata?.model 
+          ? ` (${entry.aiSummaryMetadata.model} - ${
+              entry.aiSummaryMetadata.isFullContent ? 'Full article' : 'RSS preview'
+            })`
+          : ''
+      }:\n\n${entry.content_aiSummary}` : '',
+      '',
+      'Full Content:',
+      entry.content_fullArticle || entry.content_rssAbstract
+    ];
 
-    // Create HTML version for rich text email clients
-    const htmlContent = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; max-width: 800px; margin: 0 auto; line-height: 1.6;">
-        <h1 style="font-size: 24px; margin-bottom: 8px; color: #1a1a1a;">${entry.title}</h1>
-        ${entry.feedTitle ? `<div style="font-size: 14px; color: #666; margin-bottom: 4px;">From: ${entry.feedTitle}</div>` : ''}
-        <div style="font-size: 14px; color: #666; margin-bottom: 8px;">Published: ${formatDateForCopy(new Date(entry.publishDate))}</div>
-        <a href="${entry.link}" style="color: #2563eb; text-decoration: none; font-size: 14px; margin-bottom: 16px; display: inline-block;">${entry.link}</a>
-        
-        ${entry.content_aiSummary ? `
-          <div style="margin-top: 24px;">
-            <h2 style="font-size: 18px; margin-bottom: 16px; color: #374151;">
-              Summary ${entry.aiSummaryMetadata?.model ? 
-                `<span style="font-weight: normal; color: #6b7280; font-size: 14px;">
-                  (${entry.aiSummaryMetadata.model} - 
-                  ${entry.aiSummaryMetadata.isFullContent ? 'Full article' : 'RSS preview'})
-                </span>` : 
-                ''}:
-            </h2>
-            <div style="font-size: 16px; color: #374151; background: #f9fafb; padding: 16px; border-radius: 6px; border: 1px solid #e5e7eb;">
-              ${formatContent(entry.content_aiSummary)}
-            </div>
-          </div>
-        ` : ''}
-      </div>
-    `;
+    return parts.filter(Boolean).join('\n');
+  };
 
-    // For the clipboard, we'll write both HTML and plain text
-    const plainText = `${entry.title}\n${entry.feedTitle ? `From: ${entry.feedTitle}\n` : ''}${entry.link}\n\nSummary${
-      entry.aiSummaryMetadata?.model 
-        ? ` (${entry.aiSummaryMetadata.model} - ${
-            entry.aiSummaryMetadata.isFullContent ? 'Full article' : 'RSS preview'
-          })`
-        : ''
-    }:\n\n${entry.content_aiSummary || ''}`;
-
-    return { html: htmlContent.trim(), text: plainText };
+  const handleCopy = async () => {
+    const content = formatForSharing(currentEntry);
+    await navigator.clipboard.writeText(content);
   };
 
   return (
     <article
       ref={articleRef}
       data-index={index}
-      data-entry-id={entry.id}
+      data-entry-id={currentEntry.id}
       onClick={(e) => {
-        console.log('Article clicked, entry ID:', entry.id);
+        console.log('Article clicked, entry ID:', currentEntry.id);
         if (isChatOpen) return;
         if (e.target instanceof HTMLButtonElement || 
             (e.target instanceof HTMLElement && e.target.closest('button'))) {
@@ -257,7 +257,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
         !isFocused && onFocusChange(true);
       }}
       className={`border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-100'} transition-colors
-        ${entry.isRead ? 'opacity-75' : ''} 
+        ${currentEntry.isRead ? 'opacity-75' : ''} 
         ${isDarkMode 
           ? 'hover:bg-gray-800' 
           : 'hover:bg-reader-hover'} 
@@ -269,26 +269,26 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
       <div className="flex items-center px-4 py-2 gap-4">
         <div className="flex items-center gap-1">
           <button
-            onClick={() => onMarkAsRead(entry.id!)}
+            onClick={() => onMarkAsRead(currentEntry.id!)}
             className={`p-1.5 rounded transition-colors ${
               isDarkMode 
                 ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700' 
                 : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
             }`}
           >
-            {entry.isRead ? '✓' : '○'}
+            {currentEntry.isRead ? '✓' : '○'}
           </button>
           <button
-            onClick={() => onToggleStar(entry.id!)}
+            onClick={() => onToggleStar(currentEntry.id!)}
             className={`p-1.5 rounded transition-colors ${
-              entry.isStarred
+              currentEntry.isStarred
                 ? 'text-yellow-500'
                 : isDarkMode
                   ? 'text-gray-400 hover:text-yellow-500'
                   : 'text-gray-500 hover:text-yellow-500'
             }`}
           >
-            {entry.isStarred ? '★' : '☆'}
+            {currentEntry.isStarred ? '★' : '☆'}
           </button>
           <button
             onClick={handleRefresh}
@@ -313,7 +313,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
               />
             </svg>
           </button>
-          {entry.content_fullArticle && (
+          {currentEntry.content_fullArticle && currentEntry.content_fullArticle.length > 0 && (
             <div 
               className={`px-1.5 py-0.5 rounded text-xs font-medium
                 ${isDarkMode 
@@ -336,20 +336,20 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                   className={`truncate w-[75%] text-left ${isDarkMode ? 'hover:text-blue-400' : 'hover:text-reader-blue'}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onMarkAsRead(entry.id!);
-                    onOpenChat?.(entry);
+                    onMarkAsRead(currentEntry.id!);
+                    onOpenChat?.(currentEntry);
                   }}
                 >
-                  {entry.title}
+                  {currentEntry.title}
                 </button>
               </div>
             </h3>
           </div>
           <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            {entry.feedTitle && (
-              <span className="mr-2">{entry.feedTitle}</span>
+            {currentEntry.feedTitle && (
+              <span className="mr-2">{currentEntry.feedTitle}</span>
             )}
-            <span>{formatDate(new Date(entry.publishDate))}</span>
+            <span>{formatDate(new Date(currentEntry.publishDate))}</span>
           </div>
         </div>
       </div>
@@ -357,43 +357,59 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
       {isSelected && (
         <div 
           ref={contentRef}
-          className={`px-4 pb-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}
-          onMouseEnter={() => onContentView(entry)}
-          onMouseLeave={() => onContentLeave(entry.id!)}
+          className={`px-4 pb-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} relative`}
+          onMouseEnter={() => onContentView(currentEntry)}
+          onMouseLeave={() => onContentLeave(currentEntry.id!)}
         >
           <div className={markdownClass}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {getPreviewContent(entry.content_fullArticle || entry.content_rssAbstract, isExpanded)}
+              {getPreviewContent(currentEntry.content_fullArticle || currentEntry.content_rssAbstract, isExpanded)}
             </ReactMarkdown>
           </div>
-          {entry.content_aiSummary && (
+          {currentEntry.content_aiSummary && (
             <div className={`mt-4 p-4 rounded ${isDarkMode ? 'bg-gray-800' : 'bg-gray-50'}`}>
               <div className={`text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                Summary {entry.aiSummaryMetadata?.model && (
+                Summary {currentEntry.aiSummaryMetadata?.model && (
                   <span className={`font-normal ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                    ({entry.aiSummaryMetadata.model} - {entry.aiSummaryMetadata.isFullContent ? 'Full article' : 'RSS preview'})
+                    ({currentEntry.aiSummaryMetadata.model} - {currentEntry.aiSummaryMetadata.isFullContent ? 'Full article' : 'RSS preview'})
                   </span>
                 )}:
               </div>
               <div className={markdownClass}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {entry.content_aiSummary}
+                  {currentEntry.content_aiSummary}
                 </ReactMarkdown>
               </div>
             </div>
           )}
-          {getContentLength(entry.content_fullArticle || entry.content_rssAbstract) > 600 && (
+          <div className="flex justify-between items-center mt-4">
+            {getContentLength(currentEntry.content_fullArticle || currentEntry.content_rssAbstract) > 600 && (
+              <button
+                onClick={() => onToggleExpand(currentEntry.id!)}
+                className={`text-sm ${
+                  isDarkMode 
+                    ? 'text-gray-400 hover:text-gray-200' 
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {isExpanded ? 'Show less' : 'Show more'}
+              </button>
+            )}
             <button
-              onClick={() => onToggleExpand(entry.id!)}
-              className={`mt-2 text-sm ${
-                isDarkMode 
-                  ? 'text-gray-400 hover:text-gray-200' 
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
+              onClick={handleCopy}
+              className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm ml-auto
+                ${isDarkMode 
+                  ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                  : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}
+              title="Copy article content"
             >
-              {isExpanded ? 'Show less' : 'Show more'}
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+              </svg>
+              <span>Copy</span>
             </button>
-          )}
+          </div>
         </div>
       )}
     </article>
