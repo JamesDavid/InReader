@@ -13,7 +13,6 @@ interface Feed {
 interface FeedEntry {
   id?: number;
   feedId: number;
-  feedTitle?: string;
   title: string;
   content_rssAbstract: string;
   content_fullArticle?: string;
@@ -41,6 +40,11 @@ interface FeedEntry {
   };
 }
 
+// Add a new type for entries with feed titles
+interface FeedEntryWithTitle extends FeedEntry {
+  feedTitle: string;
+}
+
 interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'article';
   content: string;
@@ -61,6 +65,8 @@ interface SavedSearch {
   title: string;
   createdAt: Date;
   resultCount?: number;
+  lastUpdated?: Date;
+  mostRecentResult?: Date | null;
 }
 
 class ReaderDatabase extends Dexie {
@@ -76,9 +82,9 @@ class ReaderDatabase extends Dexie {
     const entriesSchema = '++id, feedId, publishDate, isRead, readDate, isStarred, starredDate, isListened, listenedDate, lastChatDate, content_aiSummary, chatHistory, requestProcessingStatus, [feedId+link]';
     const feedsSchema = '++id, url, folderId';
     const foldersSchema = '++id, parentId';
-    const savedSearchesSchema = '++id, query';
+    const savedSearchesSchema = '++id, query, createdAt, lastUpdated, mostRecentResult';
 
-    this.version(6200).stores({
+    this.version(62020).stores({
       feeds: feedsSchema,
       entries: entriesSchema,
       folders: foldersSchema,
@@ -129,6 +135,25 @@ class ReaderDatabase extends Dexie {
         if (entry.requestProcessingStatus === 'processing') {
           entry.requestProcessingStatus = 'pending';
           entry.lastRequestAttempt = null;
+        }
+      });
+
+      // Add new timestamp fields to existing saved searches
+      await tx.table('savedSearches').toCollection().modify(search => {
+        if (!search.createdAt) {
+          search.createdAt = new Date();
+        }
+        if (!search.lastUpdated) {
+          search.lastUpdated = search.createdAt;
+        }
+        if (search.mostRecentResult === undefined) {
+          search.mostRecentResult = null;
+        }
+        // Ensure dates are actual Date objects
+        search.createdAt = new Date(search.createdAt);
+        search.lastUpdated = new Date(search.lastUpdated);
+        if (search.mostRecentResult) {
+          search.mostRecentResult = new Date(search.mostRecentResult);
         }
       });
     });
@@ -203,12 +228,19 @@ export async function addEntry(entry: Omit<FeedEntry, 'id'>) {
       .first();
 
     if (!existingEntry) {
-      return await db.entries.add({
+      const entryId = await db.entries.add({
         ...entry,
         isListened: false,
         requestProcessingStatus: entry.requestProcessingStatus || 'pending',
         lastRequestAttempt: entry.lastRequestAttempt || undefined
       });
+      
+      // Update search results when new entries are added
+      updateSearchResultCounts().catch(error => {
+        console.error('Error updating search results after adding entry:', error);
+      });
+      
+      return entryId;
     }
     return existingEntry.id;
   } catch (error) {
@@ -281,7 +313,7 @@ export async function getUnreadEntries(feedId?: number) {
   return await query.reverse().sortBy('publishDate');
 }
 
-async function addFeedTitleToEntries(entries: FeedEntry[]): Promise<FeedEntry[]> {
+async function addFeedTitleToEntries(entries: FeedEntry[]): Promise<FeedEntryWithTitle[]> {
   const feedIds = [...new Set(entries
     .map(entry => entry.feedId)
     .filter((id): id is number => id != null))];
@@ -294,7 +326,7 @@ async function addFeedTitleToEntries(entries: FeedEntry[]): Promise<FeedEntry[]>
   
   return entries.map(entry => ({
     ...entry,
-    feedTitle: entry.feedId ? feedMap.get(entry.feedId) : undefined,
+    feedTitle: entry.feedId ? feedMap.get(entry.feedId) || 'Unknown Feed' : 'Unknown Feed',
     publishDate: new Date(entry.publishDate),
     readDate: entry.readDate ? new Date(entry.readDate) : undefined,
     starredDate: entry.starredDate ? new Date(entry.starredDate) : undefined,
@@ -378,9 +410,35 @@ export async function searchEntries(query: string) {
 export async function saveSearch(query: string) {
   const normalizedQuery = query.toLowerCase().trim();
   
-  // Get the search results count
+  // Get the search results count and most recent timestamp
   const results = await searchEntries(query);
   const resultCount = results.length;
+  
+  // Find the most recent entry's publish date
+  let mostRecentTimestamp: Date | null = null;
+  if (results.length > 0) {
+    // Convert all publishDates to Date objects and filter out invalid dates
+    const validDates = results
+      .map(entry => {
+        try {
+          const date = entry.publishDate instanceof Date 
+            ? entry.publishDate 
+            : new Date(entry.publishDate);
+          return isNaN(date.getTime()) ? null : date;
+        } catch (error) {
+          console.warn('Invalid date for entry:', entry.title, entry.publishDate);
+          return null;
+        }
+      })
+      .filter((date): date is Date => date !== null);
+
+    if (validDates.length > 0) {
+      // Find the most recent valid date
+      mostRecentTimestamp = validDates.reduce((latest, current) => 
+        current > latest ? current : latest
+      );
+    }
+  }
   
   // Check if search already exists
   const existingSearch = await db.savedSearches
@@ -388,26 +446,78 @@ export async function saveSearch(query: string) {
     .equals(normalizedQuery)
     .first();
 
+  const now = new Date();
+
   if (existingSearch) {
-    // Update the timestamp and result count
-    await db.savedSearches.update(existingSearch.id!, {
-      createdAt: new Date(),
-      resultCount
-    });
+    // Update the timestamp, result count, and most recent result
+    const update = {
+      lastUpdated: now,
+      resultCount,
+      mostRecentResult: mostRecentTimestamp
+    };
+    await db.savedSearches.update(existingSearch.id!, update);
     return existingSearch.id;
   }
 
   const title = `Search: ${query}`;
-  return await db.savedSearches.add({
+  const newSearch = {
     query: normalizedQuery,
     title,
-    createdAt: new Date(),
-    resultCount
-  });
+    createdAt: now,
+    resultCount,
+    lastUpdated: now,
+    mostRecentResult: mostRecentTimestamp
+  };
+  return await db.savedSearches.add(newSearch);
 }
 
 export async function getSavedSearches() {
-  return await db.savedSearches.toArray();
+  console.log('Getting saved searches from DB');
+  const searches = await db.savedSearches.toArray();
+  console.log('Raw searches from DB:', searches);
+  
+  // Convert date strings to Date objects
+  const hydratedSearches = searches.map(search => {
+    console.log('Hydrating search:', search.query, {
+      rawMostRecent: search.mostRecentResult,
+      type: typeof search.mostRecentResult
+    });
+    
+    // Ensure we have valid Date objects
+    const createdAt = new Date(search.createdAt);
+    const lastUpdated = search.lastUpdated ? new Date(search.lastUpdated) : undefined;
+    let mostRecentResult: Date | null = null;
+    
+    if (search.mostRecentResult) {
+      try {
+        mostRecentResult = new Date(search.mostRecentResult);
+        // Verify it's a valid date
+        if (isNaN(mostRecentResult.getTime())) {
+          console.warn('Invalid mostRecentResult date for search:', search.query, search.mostRecentResult);
+          mostRecentResult = null;
+        }
+      } catch (error) {
+        console.error('Error converting mostRecentResult date:', error);
+        mostRecentResult = null;
+      }
+    }
+
+    const hydrated = {
+      ...search,
+      createdAt,
+      lastUpdated,
+      mostRecentResult
+    };
+    
+    console.log('Hydrated search:', search.query, {
+      mostRecentResult: hydrated.mostRecentResult,
+      isDate: hydrated.mostRecentResult instanceof Date
+    });
+    
+    return hydrated;
+  });
+
+  return hydratedSearches;
 }
 
 export async function deleteSavedSearch(id: number) {
@@ -464,18 +574,40 @@ export async function getChatHistory(entryId: number): Promise<ChatMessage[] | u
 }
 
 export async function getEntriesWithChats() {
+  console.log('Getting entries with chats...');
   const entries = await db.entries
     .filter(entry => {
-      if (!entry.chatHistory || entry.chatHistory.length === 0) return false;
+      if (!entry.chatHistory || entry.chatHistory.length === 0) {
+        console.log('Entry has no chat history:', entry.id);
+        return false;
+      }
+
       // Only count entries that have at least one user message and one assistant message
       const hasUserMessage = entry.chatHistory.some(msg => msg.role === 'user');
-      const hasAssistantMessage = entry.chatHistory.some(msg => msg.role === 'assistant');
+      const hasAssistantMessage = entry.chatHistory.some(msg => msg.role === 'assistant' && msg.content.trim() !== '');
+      
+      console.log('Chat history for entry', entry.id, {
+        hasUserMessage,
+        hasAssistantMessage,
+        messageCount: entry.chatHistory.length,
+        messages: entry.chatHistory.map(msg => ({
+          role: msg.role,
+          contentLength: msg.content.length,
+          timestamp: msg.timestamp
+        }))
+      });
+
       return hasUserMessage && hasAssistantMessage;
     })
     .toArray();
 
+  console.log('Found entries with chats:', entries.length);
+
+  // Add feed titles and convert to FeedEntryWithTitle
+  const entriesWithTitles = await addFeedTitleToEntries(entries);
+
   // Sort by lastChatDate (most recent first), falling back to the most recent message timestamp
-  return entries.sort((a, b) => {
+  const sortedEntries = entriesWithTitles.sort((a, b) => {
     // If we have lastChatDate, use it
     if (a.lastChatDate && b.lastChatDate) {
       return b.lastChatDate.getTime() - a.lastChatDate.getTime();
@@ -492,16 +624,36 @@ export async function getEntriesWithChats() {
     );
     return bLatest.getTime() - aLatest.getTime();
   });
+
+  console.log('Sorted entries:', sortedEntries.map(e => ({
+    id: e.id,
+    title: e.title,
+    lastChatDate: e.lastChatDate,
+    messageCount: e.chatHistory?.length
+  })));
+
+  return sortedEntries;
 }
 
 export async function updateSearchResultCounts() {
   const searches = await db.savedSearches.toArray();
+  const now = new Date();
   
-  // Update each search's result count
+  // Update each search's result count and timestamp
   const updates = searches.map(async (search) => {
     const results = await searchEntries(search.query);
+    let mostRecentTimestamp: Date | null = null;
+    if (results.length > 0) {
+      mostRecentTimestamp = results.reduce((latest, entry) => {
+        const entryDate = entry.publishDate;
+        return entryDate > latest ? entryDate : latest;
+      }, results[0].publishDate);
+    }
+
     return db.savedSearches.update(search.id!, {
-      resultCount: results.length
+      resultCount: results.length,
+      lastUpdated: now,
+      mostRecentResult: mostRecentTimestamp
     });
   });
   
@@ -600,4 +752,24 @@ export async function getMostRecentEntry(feedId: number): Promise<FeedEntry | un
     .then(entries => entries[0]);
 }
 
-export type { Feed, FeedEntry, Folder, SavedSearch, ChatMessage }; 
+export async function updateFeedTitle(feedId: number, newTitle: string) {
+  return await withErrorHandling(async () => {
+    const feed = await db.feeds.get(feedId);
+    if (!feed) {
+      throw new Error('Feed not found');
+    }
+    return await db.feeds.update(feedId, { title: newTitle });
+  });
+}
+
+export async function updateFolderName(folderId: string, newName: string) {
+  return await withErrorHandling(async () => {
+    const folder = await db.folders.get(folderId);
+    if (!folder) {
+      throw new Error('Folder not found');
+    }
+    return await db.folders.update(folderId, { name: newName });
+  });
+}
+
+export type { Feed, FeedEntry, FeedEntryWithTitle, Folder, SavedSearch, ChatMessage }; 

@@ -12,27 +12,41 @@ interface SidebarSearchItemProps {
   onFocusChange: (focused: boolean) => void;
   onDelete?: () => void;
   hits?: number;
-  timestamp?: Date;
+  timestamp: Date | null;
 }
 
 const getBadgeColors = (timestamp: Date | null, isDarkMode: boolean): string => {
-  if (!timestamp) return isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-200 text-gray-600';
+  console.log('Getting badge color for timestamp:', {
+    timestamp,
+    isDate: timestamp instanceof Date,
+    type: timestamp ? typeof timestamp : 'null'
+  });
+  
+  if (!timestamp) {
+    console.log('No timestamp, using default color');
+    return isDarkMode ? 'bg-gray-600 text-white' : 'bg-gray-200 text-gray-600';
+  }
   
   const now = new Date();
   const diff = now.getTime() - timestamp.getTime();
   const hours = diff / (1000 * 60 * 60);
+  console.log('Time difference in hours:', hours);
 
   if (hours <= 1) {
-    // Less than 1 hour - dark purple
+    // Less than 1 hour - dark purple (new results)
+    console.log('Less than 1 hour - using purple');
     return isDarkMode ? 'bg-purple-700 text-white' : 'bg-purple-700 text-white';
   } else if (hours <= 24) {
-    // Less than 24 hours - dark blue
+    // Less than 24 hours - dark blue (recent results)
+    console.log('Less than 24 hours - using dark blue');
     return isDarkMode ? 'bg-blue-600 text-white' : 'bg-blue-600 text-white';
   } else if (hours <= 168) { // 7 days
-    // Less than a week - light blue
+    // Less than a week - light blue (week-old results)
+    console.log('Less than a week - using light blue');
     return isDarkMode ? 'bg-blue-400 text-white' : 'bg-blue-400 text-white';
   } else {
-    // Older - gray
+    // Older - gray (old results)
+    console.log('Older than a week - using gray');
     return isDarkMode ? 'bg-gray-500 text-white' : 'bg-gray-500 text-white';
   }
 };
@@ -50,6 +64,18 @@ const SidebarSearchItem: React.FC<SidebarSearchItemProps> = ({
   hits,
   timestamp,
 }) => {
+  // Ensure we have a valid Date object or null
+  const validTimestamp = timestamp instanceof Date ? timestamp : null;
+  
+  console.log('SidebarSearchItem props:', {
+    title,
+    hits,
+    rawTimestamp: timestamp,
+    validTimestamp,
+    type: timestamp ? typeof timestamp : 'null',
+    isDate: timestamp instanceof Date
+  });
+
   const menuItemClass = `
     block px-4 py-2 text-sm transition-colors
     ${isActive ? (isDarkMode ? 'bg-gray-700' : 'bg-reader-hover') : ''}
@@ -78,7 +104,7 @@ const SidebarSearchItem: React.FC<SidebarSearchItemProps> = ({
           <div className="flex items-center justify-end flex-shrink-0 relative">
             {typeof hits === 'number' && (
               <span className={`text-xs px-2 py-0.5 rounded-full
-                ${getBadgeColors(timestamp || null, isDarkMode)}
+                ${getBadgeColors(validTimestamp, isDarkMode)}
                 ${onDelete ? 'group-hover:opacity-0' : ''} transition-opacity`}
               >
                 {hits}

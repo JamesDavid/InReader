@@ -9,7 +9,9 @@ import {
   getUnreadEntries, 
   updateSearchResultCounts, 
   updateFeedOrder,
-  updateFolderOrder, 
+  updateFolderOrder,
+  updateFeedTitle,
+  updateFolderName,
   db,
   type Feed, 
   type Folder, 
@@ -40,11 +42,10 @@ interface SidebarProps {
   isDarkMode: boolean;
   onRegisterRefreshFeeds: (callback: () => void) => void;
   searchHistory: SavedSearch[];
-  searchTimestamps: { [query: string]: Date };
-  onClearSearchHistory: (searchId?: number) => void;
+  onClearSearchHistory: (searchId?: number) => Promise<void>;
   selectedIndex: number;
   onSelectedIndexChange: (index: number) => void;
-  onOpenSearch?: () => void;
+  onOpenSearch: () => void;
 }
 
 interface FeedItemWithUnread extends Feed {
@@ -67,7 +68,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   isDarkMode,
   onRegisterRefreshFeeds,
   searchHistory,
-  searchTimestamps,
   onClearSearchHistory,
   selectedIndex,
   onSelectedIndexChange,
@@ -91,15 +91,48 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   // Create search items from search history
   const searchItems = useMemo(() => 
-    searchHistory.map(search => ({
-      id: search.id,
-      path: `/search/${encodeURIComponent(search.query)}`,
-      title: search.query,
-      hits: search.resultCount,
-      onDelete: async () => {
-        await onClearSearchHistory(search.id!);
+    searchHistory.map(search => {
+      console.log('Raw search data:', {
+        query: search.query,
+        mostRecentResult: search.mostRecentResult,
+        type: search.mostRecentResult ? typeof search.mostRecentResult : 'undefined',
+        isDate: search.mostRecentResult instanceof Date
+      });
+      
+      // Ensure we have a valid Date object or null
+      let timestamp: Date | null = null;
+      if (search.mostRecentResult) {
+        try {
+          timestamp = new Date(search.mostRecentResult);
+          // Verify it's a valid date
+          if (isNaN(timestamp.getTime())) {
+            console.warn('Invalid date for search:', search.query, search.mostRecentResult);
+            timestamp = null;
+          }
+        } catch (error) {
+          console.error('Error converting date:', error);
+          timestamp = null;
+        }
       }
-    })), [searchHistory, onClearSearchHistory]);
+
+      console.log('Creating search item for:', search.query, {
+        mostRecentResult: search.mostRecentResult,
+        resultCount: search.resultCount,
+        timestamp,
+        isValidDate: timestamp instanceof Date
+      });
+
+      return {
+        id: search.id,
+        path: `/search/${encodeURIComponent(search.query)}`,
+        title: search.query,
+        hits: search.resultCount,
+        timestamp,
+        onDelete: async () => {
+          await onClearSearchHistory(search.id!);
+        }
+      };
+    }), [searchHistory, onClearSearchHistory]);
 
   // Add this effect to log search history updates
   useEffect(() => {
@@ -282,22 +315,21 @@ const Sidebar: React.FC<SidebarProps> = ({
         }
       }));
       
-      // Update feeds data
-      const [feedsData] = await Promise.all([
-        getAllFeeds(),
+      // Wait a short moment for entries to be processed
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Update feeds data and search results
+      await Promise.all([
+        loadData(),
+        updateSearchResultCounts()
       ]);
 
-      const sortedFeeds = feedsData.sort((a, b) => (a.order || 0) - (b.order || 0));
-      setFeeds(sortedFeeds);
-
-      // Update search results
-      await updateSearchResultCounts();
     } catch (error) {
       console.error('Error refreshing feeds:', error);
     } finally {
       setIsRefreshing(false);
     }
-  }, [feeds, isRefreshing]);
+  }, [feeds, isRefreshing, loadData]);
 
   // Register the refresh callback with Layout
   useEffect(() => {
@@ -433,6 +465,24 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  const handleRenameFeed = async (feedId: number, newTitle: string) => {
+    try {
+      await updateFeedTitle(feedId, newTitle);
+      loadData(); // Refresh the feed list
+    } catch (error) {
+      console.error('Error renaming feed:', error);
+    }
+  };
+
+  const handleRenameFolder = async (folderId: string, newName: string) => {
+    try {
+      await updateFolderName(folderId, newName);
+      loadData(); // Refresh the folder list
+    } catch (error) {
+      console.error('Error renaming folder:', error);
+    }
+  };
+
   return (
     <div 
       ref={sidebarRef} 
@@ -488,7 +538,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   onSelect={onSelectedIndexChange}
                   onFocusChange={onFocusChange}
                   onDelete={item.onDelete}
-                  timestamp={searchTimestamps[item.title.toLowerCase()]}
+                  timestamp={item.timestamp}
                 />
               );
             })}
@@ -514,6 +564,8 @@ const Sidebar: React.FC<SidebarProps> = ({
           onDeleteFeed={handleDeleteFeed}
           onUpdateFeedOrder={handleUpdateFeedOrder}
           onUpdateFolderOrder={handleUpdateFolderOrder}
+          onRenameFolder={handleRenameFolder}
+          onRenameFeed={handleRenameFeed}
           buttons={[
             {
               icon: (

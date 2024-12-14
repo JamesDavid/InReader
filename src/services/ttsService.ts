@@ -198,11 +198,11 @@ class TTSService {
       return;
     }
 
-    // Get feed title from database if not provided
-    let source = entry.feedTitle;
-    if (!source && entry.feedId) {
+    // Always get the latest feed title from database
+    let source = 'Unknown Source';
+    if (entry.feedId) {
       const feed = await db.feeds.get(entry.feedId);
-      source = feed?.title;
+      source = feed?.title || 'Unknown Source';
     }
 
     // Determine which content to use, preferring full article over RSS abstract
@@ -220,7 +220,7 @@ class TTSService {
     const article: QueuedArticle = {
       id: entry.id,
       title: entry.title,
-      source: source || 'Unknown Source',
+      source,
       summary: cleanSummary,
       content: cleanContent
     };

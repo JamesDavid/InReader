@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { db, type ChatMessage } from '../services/db';
@@ -63,6 +63,28 @@ const ChatModal: React.FC<ChatModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isUsingFullContent, setIsUsingFullContent] = useState(false);
   const [isContentCollapsed, setIsContentCollapsed] = useState(false);
+
+  // Add scroll to bottom function
+  const scrollToBottom = useCallback((smooth = true) => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ 
+        behavior: smooth ? 'smooth' : 'auto',
+        block: 'end'
+      });
+    }
+  }, []);
+
+  // Scroll when messages change or typing state changes
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isTyping, scrollToBottom]);
+
+  // Also scroll when streaming updates the last message
+  useEffect(() => {
+    if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+      scrollToBottom();
+    }
+  }, [messages[messages.length - 1]?.content, scrollToBottom]);
 
   const markdownClass = `prose prose-sm max-w-none 
     ${isDarkMode ? 'prose-invert prose-p:text-gray-300' : 'prose-p:text-gray-600'}
@@ -156,28 +178,38 @@ const ChatModal: React.FC<ChatModalProps> = ({
       // Check if we already have a chat history
       const history = await db.entries.get(entryId);
       if (history?.chatHistory && history.chatHistory.length > 0) {
-        setMessages(history.chatHistory);
+        // Ensure all messages have IDs and timestamps
+        const validatedHistory = history.chatHistory.map(msg => ({
+          ...msg,
+          id: msg.id || `${msg.role}-${Math.random().toString(36).substring(7)}`,
+          timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date()
+        }));
+        setMessages(validatedHistory);
         return;
       }
 
       // If no history, initialize with system message and article content
+      const now = new Date();
       const systemMessage: ChatMessage = {
         role: 'system',
         content: `You are a helpful assistant discussing the article titled "${articleTitle}". The article content has been provided for context. Please help answer any questions about the article. Base your responses only on the provided article content.`,
-        timestamp: new Date(),
+        timestamp: now,
         id: 'system-' + Math.random().toString(36).substring(7)
       };
 
       const articleMessage: ChatMessage = {
         role: 'article',
         content: `Article content:\n\n${fullArticleContent}`,
-        timestamp: new Date(),
+        timestamp: now,
         id: 'article-' + Math.random().toString(36).substring(7)
       };
 
       const initialMessages = [systemMessage, articleMessage];
       setMessages(initialMessages);
-      await db.entries.update(entryId, { chatHistory: initialMessages });
+      await db.entries.update(entryId, { 
+        chatHistory: initialMessages,
+        lastChatDate: now
+      });
 
     } catch (err) {
       console.error('Error initializing chat:', err);
@@ -313,12 +345,16 @@ const ChatModal: React.FC<ChatModalProps> = ({
       }
 
       // Save final chat history
-      const finalMessages = messages.map(msg => 
-        msg.role === 'assistant' && msg.content === '' 
-          ? { ...msg, content: responseText }
-          : msg
-      );
-      await db.entries.update(entryId, { chatHistory: finalMessages });
+      const finalMessages = [...messages.slice(0, -1), {
+        ...messages[messages.length - 1],
+        content: responseText,
+        timestamp: new Date()
+      }];
+      await db.entries.update(entryId, { 
+        chatHistory: finalMessages,
+        lastChatDate: new Date()
+      });
+      setMessages(finalMessages);
       onChatUpdate?.();
 
     } catch (err) {
@@ -496,12 +532,132 @@ const ChatModal: React.FC<ChatModalProps> = ({
                   <button
                     key={index}
                     onClick={async () => {
-                      if (messages.length === 0) {
-                        // Initialize chat first if no messages exist
-                        await initializeChat();
+                      if (isLoading || !fullArticleContent) return;
+
+                      try {
+                        if (messages.length === 0) {
+                          await initializeChat();
+                        }
+
+                        // Create and add the user message
+                        const userMessage: ChatMessage = {
+                          role: 'user',
+                          content: question.prompt,
+                          timestamp: new Date(),
+                          id: 'user-' + Math.random().toString(36).substring(7)
+                        };
+
+                        // Only add the user message initially
+                        const updatedMessages = [...messages, userMessage];
+                        setMessages(updatedMessages);
+                        setIsTyping(true); // Show typing indicator
+
+                        const config = loadOllamaConfig();
+                        if (!config) {
+                          throw new Error('Ollama configuration not found');
+                        }
+
+                        const apiMessages = [
+                          {
+                            role: 'system',
+                            content: `You are a helpful assistant discussing the article titled "${articleTitle}". Here is the article content for context:\n\n${fullArticleContent}\n\nPlease help answer questions about this article, using only information from the provided content.`
+                          },
+                          ...updatedMessages
+                            .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+                            .map(msg => ({
+                              role: msg.role,
+                              content: msg.content
+                            }))
+                        ];
+
+                        const response = await fetch(`${config.serverUrl}/api/chat`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            model: config.chatModel,
+                            messages: apiMessages,
+                            stream: true
+                          })
+                        });
+
+                        if (!response.ok) {
+                          const errorText = await response.text();
+                          throw new Error(`Failed to get response from Ollama: ${errorText}`);
+                        }
+
+                        const reader = response.body?.getReader();
+                        if (!reader) throw new Error('No response stream available');
+
+                        // Create assistant message only when we get the first chunk
+                        let assistantMessage: ChatMessage | null = null;
+                        let responseText = '';
+
+                        while (true) {
+                          const { done, value } = await reader.read();
+                          if (done) break;
+
+                          const chunk = new TextDecoder().decode(value);
+                          const lines = chunk.split('\n').filter(Boolean);
+
+                          for (const line of lines) {
+                            try {
+                              const json = JSON.parse(line);
+                              const responseContent = json.response || json.message?.content || '';
+                              if (responseContent) {
+                                responseText += responseContent;
+
+                                // Create assistant message if this is the first content
+                                if (!assistantMessage) {
+                                  assistantMessage = {
+                                    role: 'assistant',
+                                    content: responseText,
+                                    timestamp: new Date(),
+                                    id: 'assistant-' + Math.random().toString(36).substring(7),
+                                    model: activeModel
+                                  };
+                                  setIsTyping(false); // Remove typing indicator
+                                  setMessages([...updatedMessages, assistantMessage]);
+                                } else {
+                                  // Update existing assistant message
+                                  setMessages(prev => {
+                                    const lastMessage = prev[prev.length - 1];
+                                    if (lastMessage.role === 'assistant') {
+                                      return [
+                                        ...prev.slice(0, -1),
+                                        { ...lastMessage, content: responseText }
+                                      ];
+                                    }
+                                    return prev;
+                                  });
+                                }
+                              }
+                            } catch (err) {
+                              console.error('Error parsing stream chunk:', err);
+                            }
+                          }
+                        }
+
+                        // Save final chat history
+                        if (assistantMessage) {
+                          const finalMessages = [...updatedMessages, {
+                            ...assistantMessage,
+                            content: responseText
+                          }];
+                          await db.entries.update(entryId, { 
+                            chatHistory: finalMessages,
+                            lastChatDate: new Date()
+                          });
+                          setMessages(finalMessages);
+                          onChatUpdate?.();
+                        }
+
+                      } catch (error) {
+                        console.error('Error in quick analysis:', error);
+                        setError(error instanceof Error ? error.message : 'Failed to get response');
+                        setIsTyping(false);
+                      } finally {
+                        setIsLoading(false);
                       }
-                      setInput(question.prompt);
-                      handleSubmit(new Event('submit') as React.FormEvent);
                     }}
                     disabled={isLoading || !fullArticleContent}
                     className={`px-3 py-1.5 rounded text-sm transition-colors whitespace-nowrap
@@ -531,7 +687,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
             {/* Chat Messages */}
             <div 
               ref={chatContainerRef}
-              className={`flex-1 overflow-y-auto mb-4 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}
+              className={`flex-1 overflow-y-auto mb-4 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} scroll-smooth`}
             >
               <div className="flex flex-col min-h-full">
                 <div className="flex-grow">

@@ -22,6 +22,8 @@ interface SidebarHeaderProps {
   onDeleteFeed: (feedId: number) => Promise<void>;
   onUpdateFeedOrder: (updates: { feedId: number; folderId: string | null; order: number }[]) => Promise<void>;
   onUpdateFolderOrder: (updates: { folderId: string; order: number }[]) => Promise<void>;
+  onRenameFolder: (folderId: string, newName: string) => Promise<void>;
+  onRenameFeed: (feedId: number, newTitle: string) => Promise<void>;
   type?: 'default' | 'searches';
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -40,6 +42,8 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({
   onDeleteFeed,
   onUpdateFeedOrder,
   onUpdateFolderOrder,
+  onRenameFolder,
+  onRenameFeed,
   type = 'default',
   isCollapsed,
   onToggleCollapse,
@@ -156,6 +160,8 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({
           onDeleteFeed={onDeleteFeed}
           onUpdateFeedOrder={onUpdateFeedOrder}
           onUpdateFolderOrder={onUpdateFolderOrder}
+          onRenameFolder={onRenameFolder}
+          onRenameFeed={onRenameFeed}
         />
       )}
     </>

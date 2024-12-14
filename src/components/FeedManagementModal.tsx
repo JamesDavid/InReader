@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
-import { PlusIcon, FolderIcon, RssIcon, XMarkIcon, TrashIcon, ArrowDownTrayIcon, ArrowUpTrayIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, FolderIcon, RssIcon, XMarkIcon, TrashIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, PencilIcon } from '@heroicons/react/24/outline';
 import { StrictModeDroppable } from './StrictModeDroppable';
 import { importOpml, exportOpml } from '../services/opmlService';
 
@@ -26,6 +26,8 @@ interface FeedManagementModalProps {
   onDeleteFeed: (feedId: number) => Promise<void>;
   onUpdateFeedOrder: (updates: { feedId: number; folderId: string | null; order: number }[]) => Promise<void>;
   onUpdateFolderOrder: (updates: { folderId: string; order: number }[]) => Promise<void>;
+  onRenameFolder: (folderId: string, newName: string) => Promise<void>;
+  onRenameFeed: (feedId: number, newTitle: string) => Promise<void>;
 }
 
 // Add this interface to track folder state
@@ -33,6 +35,216 @@ interface OrganizationState {
   unorganized: Feed[];
   [key: string]: Feed[];
 }
+
+interface DraggableFeedProps {
+  feed: Feed;
+  index: number;
+  isDarkMode: boolean;
+  isEditing: boolean;
+  editingName: string;
+  onStartEdit: (id: number, name: string) => void;
+  onDelete: (id: number) => void;
+  onEditingNameChange: (name: string) => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+  onSave: () => void;
+}
+
+const DraggableFeed: React.FC<DraggableFeedProps> = ({
+  feed,
+  index,
+  isDarkMode,
+  isEditing,
+  editingName,
+  onStartEdit,
+  onDelete,
+  onEditingNameChange,
+  onKeyDown,
+  onSave,
+}) => {
+  return (
+    <Draggable key={feed.id} draggableId={`feed-${feed.id}`} index={index}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          {...provided.dragHandleProps}
+          className={`flex items-center justify-between p-2 mb-2 rounded shadow-sm
+            ${snapshot.isDragging
+              ? isDarkMode ? 'bg-gray-700' : 'bg-blue-50'
+              : isDarkMode ? 'bg-gray-800' : 'bg-white'
+            }
+            ${isDarkMode ? 'text-white' : 'text-gray-900'}
+          `}
+        >
+          <div className="flex items-center gap-2">
+            <RssIcon className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+            {isEditing ? (
+              <input
+                type="text"
+                value={editingName}
+                onChange={(e) => onEditingNameChange(e.target.value)}
+                onKeyDown={onKeyDown}
+                onBlur={onSave}
+                autoFocus
+                className={`px-1 py-0.5 rounded ${
+                  isDarkMode
+                    ? 'bg-gray-700 text-white border-gray-600'
+                    : 'bg-white text-gray-900 border-gray-300'
+                } border`}
+              />
+            ) : (
+              <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>{feed.title}</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onStartEdit(feed.id, feed.title)}
+              className={`p-1 rounded-full ${
+                isDarkMode
+                  ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200'
+                  : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
+              }`}
+              title="Rename feed"
+            >
+              <PencilIcon className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => onDelete(feed.id)}
+              className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 p-1 rounded"
+              title="Delete feed"
+            >
+              <XMarkIcon className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+    </Draggable>
+  );
+};
+
+interface DraggableFolderProps {
+  folder: Folder;
+  index: number;
+  isDarkMode: boolean;
+  isEditing: boolean;
+  editingName: string;
+  feeds: Feed[];
+  onStartEdit: (id: string, name: string) => void;
+  onDelete: (id: string) => void;
+  onEditingNameChange: (name: string) => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+  onSave: () => void;
+  onFeedStartEdit: (id: number, name: string) => void;
+  onFeedDelete: (id: number) => void;
+}
+
+const DraggableFolder: React.FC<DraggableFolderProps> = ({
+  folder,
+  index,
+  isDarkMode,
+  isEditing,
+  editingName,
+  feeds,
+  onStartEdit,
+  onDelete,
+  onEditingNameChange,
+  onKeyDown,
+  onSave,
+  onFeedStartEdit,
+  onFeedDelete,
+}) => {
+  return (
+    <Draggable key={folder.id} draggableId={`folder-${folder.id}`} index={index}>
+      {(provided, snapshot) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          {...provided.dragHandleProps}
+          className={`mb-4 ${snapshot.isDragging ? 'z-50' : ''}`}
+        >
+          <div className={`p-3 rounded transition-colors ${
+            snapshot.isDragging
+              ? isDarkMode ? 'bg-gray-700 shadow-lg' : 'bg-blue-50 shadow-lg'
+              : isDarkMode ? 'bg-gray-900' : 'bg-gray-50'
+          }`}>
+            <div className="flex items-center justify-between mb-2">
+              <div className={`flex items-center gap-2 text-sm font-medium ${
+                isDarkMode ? 'text-gray-300' : 'text-gray-700'
+              }`}>
+                <FolderIcon className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editingName}
+                    onChange={(e) => onEditingNameChange(e.target.value)}
+                    onKeyDown={onKeyDown}
+                    onBlur={onSave}
+                    autoFocus
+                    className={`px-1 py-0.5 rounded ${
+                      isDarkMode
+                        ? 'bg-gray-700 text-white border-gray-600'
+                        : 'bg-white text-gray-900 border-gray-300'
+                    } border`}
+                  />
+                ) : (
+                  <span>{folder.name}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => onStartEdit(folder.id, folder.name)}
+                  className={`p-1 rounded-full ${
+                    isDarkMode
+                      ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200'
+                      : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
+                  }`}
+                  title="Rename folder"
+                >
+                  <PencilIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => onDelete(folder.id)}
+                  className="p-1 text-red-500 hover:text-red-600 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20"
+                  title="Delete folder"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Feeds within folder */}
+            <StrictModeDroppable droppableId={folder.id} type="FEED">
+              {(provided, snapshot) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  className="pl-4"
+                >
+                  {feeds.map((feed, index) => (
+                    <DraggableFeed
+                      key={feed.id}
+                      feed={feed}
+                      index={index}
+                      isDarkMode={isDarkMode}
+                      isEditing={false}
+                      editingName=""
+                      onStartEdit={onFeedStartEdit}
+                      onDelete={onFeedDelete}
+                      onEditingNameChange={onEditingNameChange}
+                      onKeyDown={onKeyDown}
+                      onSave={onSave}
+                    />
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </StrictModeDroppable>
+          </div>
+        </div>
+      )}
+    </Draggable>
+  );
+};
 
 const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
   isOpen,
@@ -45,8 +257,12 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
   onDeleteFeed,
   onUpdateFeedOrder,
   onUpdateFolderOrder,
+  onRenameFolder,
+  onRenameFeed,
 }) => {
   const [newFolderName, setNewFolderName] = useState('');
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
   const [organizationState, setOrganizationState] = useState<OrganizationState>({
     unorganized: [],
   });
@@ -215,6 +431,44 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
     }
   };
 
+  const handleStartEdit = (id: string | number, currentName: string) => {
+    setEditingItemId(String(id));
+    setEditingName(currentName);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingItemId || !editingName.trim()) return;
+
+    try {
+      if (editingItemId.startsWith('folder-')) {
+        const folderId = editingItemId.replace('folder-', '');
+        await onRenameFolder(folderId, editingName.trim());
+      } else {
+        const feedId = parseInt(editingItemId, 10);
+        await onRenameFeed(feedId, editingName.trim());
+      }
+    } catch (error) {
+      console.error('Error renaming item:', error);
+    } finally {
+      setEditingItemId(null);
+      setEditingName('');
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingItemId(null);
+    setEditingName('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSaveEdit();
+    } else if (e.key === 'Escape') {
+      handleCancelEdit();
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -323,88 +577,22 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
                     }`}
                   >
                     {orderedFolders.map((folder, index) => (
-                      <Draggable
-                        key={`folder-${folder.id}`}
-                        draggableId={`folder-${folder.id}`}
+                      <DraggableFolder
+                        key={folder.id}
+                        folder={folder}
                         index={index}
-                      >
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className={`mb-4 ${snapshot.isDragging ? 'z-50' : ''}`}
-                          >
-                            <div className={`p-3 rounded transition-colors ${
-                              snapshot.isDragging
-                                ? isDarkMode ? 'bg-gray-700 shadow-lg' : 'bg-blue-50 shadow-lg'
-                                : isDarkMode ? 'bg-gray-900' : 'bg-gray-50'
-                            }`}>
-                              <div className="flex items-center justify-between mb-2">
-                                <div className={`flex items-center gap-2 text-sm font-medium ${
-                                  isDarkMode ? 'text-gray-300' : 'text-gray-700'
-                                }`}>
-                                  <FolderIcon className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
-                                  {folder.name}
-                                </div>
-                                <button
-                                  onClick={() => handleDeleteFolder(folder.id)}
-                                  className="p-1 text-red-500 hover:text-red-600 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20"
-                                  title="Delete folder"
-                                >
-                                  <TrashIcon className="w-4 h-4" />
-                                </button>
-                              </div>
-
-                              {/* Feeds within folder */}
-                              <StrictModeDroppable droppableId={folder.id} type="FEED">
-                                {(provided, snapshot) => (
-                                  <div
-                                    ref={provided.innerRef}
-                                    {...provided.droppableProps}
-                                    className="pl-4"
-                                  >
-                                    {organizationState[folder.id]?.map((feed, index) => (
-                                      <Draggable
-                                        key={feed.id}
-                                        draggableId={`feed-${feed.id}`}
-                                        index={index}
-                                      >
-                                        {(provided, snapshot) => (
-                                          <div
-                                            ref={provided.innerRef}
-                                            {...provided.draggableProps}
-                                            {...provided.dragHandleProps}
-                                            className={`flex items-center justify-between p-2 mb-2 rounded shadow-sm
-                                              ${snapshot.isDragging
-                                                ? isDarkMode ? 'bg-gray-700' : 'bg-blue-50'
-                                                : isDarkMode ? 'bg-gray-800' : 'bg-white'
-                                              }
-                                              ${isDarkMode ? 'text-white' : 'text-gray-900'}
-                                            `}
-                                          >
-                                            <div className="flex items-center gap-2">
-                                              <RssIcon className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
-                                              <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>{feed.title}</span>
-                                            </div>
-                                            <button
-                                              onClick={() => onDeleteFeed(feed.id)}
-                                              className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 p-1 rounded"
-                                            >
-                                              <XMarkIcon className="w-4 h-4" />
-                                            </button>
-                                          </div>
-                                        )}
-                                      </Draggable>
-                                    ))}
-                                    {provided.placeholder}
-                                  </div>
-                                )}
-                              </StrictModeDroppable>
-                            </div>
-                          </div>
-                        )}
-                      </Draggable>
+                        isDarkMode={isDarkMode}
+                        isEditing={editingItemId === `folder-${folder.id}`}
+                        editingName={editingName}
+                        feeds={organizationState[folder.id] || []}
+                        onStartEdit={(id, name) => handleStartEdit(`folder-${id}`, name)}
+                        onDelete={handleDeleteFolder}
+                        onEditingNameChange={setEditingName}
+                        onKeyDown={handleKeyDown}
+                        onSave={handleSaveEdit}
+                        onFeedStartEdit={handleStartEdit}
+                        onFeedDelete={onDeleteFeed}
+                      />
                     ))}
                     {provided.placeholder}
                   </div>
@@ -429,33 +617,19 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
                       Unorganized
                     </h3>
                     {organizationState.unorganized?.map((feed, index) => (
-                      <Draggable key={feed.id} draggableId={`feed-${feed.id}`} index={index}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className={`flex items-center justify-between p-2 mb-2 rounded shadow-sm
-                              ${snapshot.isDragging
-                                ? isDarkMode ? 'bg-gray-700' : 'bg-blue-50'
-                                : isDarkMode ? 'bg-gray-800' : 'bg-white'
-                              }
-                              ${isDarkMode ? 'text-white' : 'text-gray-900'}
-                            `}
-                          >
-                            <div className="flex items-center gap-2">
-                              <RssIcon className={`w-4 h-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`} />
-                              <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>{feed.title}</span>
-                            </div>
-                            <button
-                              onClick={() => onDeleteFeed(feed.id)}
-                              className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 p-1 rounded"
-                            >
-                              <XMarkIcon className="w-4 h-4" />
-                            </button>
-                          </div>
-                        )}
-                      </Draggable>
+                      <DraggableFeed
+                        key={feed.id}
+                        feed={feed}
+                        index={index}
+                        isDarkMode={isDarkMode}
+                        isEditing={editingItemId === String(feed.id)}
+                        editingName={editingName}
+                        onStartEdit={handleStartEdit}
+                        onDelete={onDeleteFeed}
+                        onEditingNameChange={setEditingName}
+                        onKeyDown={handleKeyDown}
+                        onSave={handleSaveEdit}
+                      />
                     ))}
                     {provided.placeholder}
                   </div>

@@ -14,16 +14,11 @@ interface OutletContextType {
   showUnreadOnly: boolean;
   onFocusChange: (focused: boolean) => void;
   onSearchHistoryUpdate: () => void;
-  onSearchResultTimestamp: (query: string, timestamp: Date | null) => void;
   selectedIndex: number;
   onSelectedIndexChange: (index: number) => void;
   onSelectedEntryIdChange: (id: number | null) => void;
   selectedEntryId: number | null;
   onOpenChat: (entry: FeedEntry) => void;
-}
-
-interface SearchTimestamps {
-  [query: string]: Date;
 }
 
 const Layout: React.FC = () => {
@@ -46,7 +41,6 @@ const Layout: React.FC = () => {
   const [showChatModal, setShowChatModal] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<FeedEntry | null>(null);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
-  const [searchTimestamps, setSearchTimestamps] = useState<SearchTimestamps>({});
 
   // Create a ref to store the focusSearch callback from Header
   const [focusSearchCallback, setFocusSearchCallback] = useState<(() => void) | null>(null);
@@ -104,13 +98,27 @@ const Layout: React.FC = () => {
 
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
-      // Only block keyboard shortcuts if we're in an input/textarea
+      // Only block non-TTS keyboard shortcuts if we're in an input/textarea
       // or if a modal other than chat is open
-      if (
-        document.activeElement?.tagName === 'INPUT' ||
-        document.activeElement?.tagName === 'TEXTAREA' ||
-        (document.querySelector('.fixed.inset-0') && !showChatModal)
-      ) {
+      const isInInput = document.activeElement?.tagName === 'INPUT' || 
+                       document.activeElement?.tagName === 'TEXTAREA';
+      const isModalOpen = document.querySelector('.fixed.inset-0') !== null;
+      const isChatModalOpen = showChatModal;
+      const isTTSKey = e.key === ']' || e.key === '\\';
+
+      // Always allow TTS controls
+      if (isTTSKey) {
+        e.preventDefault();
+        if (e.key === ']') {
+          ttsService.next();
+        } else if (e.key === '\\') {
+          ttsService.togglePlayPause();
+        }
+        return;
+      }
+
+      // Block other shortcuts if in input or non-chat modal
+      if (isInInput || (isModalOpen && !isChatModalOpen)) {
         return;
       }
 
@@ -367,22 +375,12 @@ const Layout: React.FC = () => {
     setIsSearchModalOpen(true);
   }, []);
 
-  const handleSearchResultTimestamp = useCallback((query: string, timestamp: Date | null) => {
-    if (timestamp) {
-      setSearchTimestamps(prev => ({
-        ...prev,
-        [query.toLowerCase()]: timestamp
-      }));
-    }
-  }, []);
-
   const outletContext: OutletContextType = {
     isFocused: !sidebarFocused,
     isDarkMode,
     showUnreadOnly,
     onFocusChange: handleFocusChange,
     onSearchHistoryUpdate: loadSearchHistory,
-    onSearchResultTimestamp: handleSearchResultTimestamp,
     selectedIndex: selectedFeedIndex,
     onSelectedIndexChange: setSelectedFeedIndex,
     onSelectedEntryIdChange: setSelectedEntryId,
@@ -416,7 +414,6 @@ const Layout: React.FC = () => {
           isDarkMode={isDarkMode}
           onRegisterRefreshFeeds={handleRegisterRefreshFeeds}
           searchHistory={searchHistory}
-          searchTimestamps={searchTimestamps}
           onClearSearchHistory={handleClearSearchHistory}
           selectedIndex={selectedSidebarIndex}
           onSelectedIndexChange={setSelectedSidebarIndex}

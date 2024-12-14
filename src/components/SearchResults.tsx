@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useOutletContext } from 'react-router-dom';
-import { searchEntries, saveSearch, updateSearchResultCounts, type FeedEntry } from '../services/db';
+import { searchEntries, saveSearch, updateSearchResultCounts, type FeedEntry, type FeedEntryWithTitle } from '../services/db';
 import FeedList from './FeedList';
 
 interface ContextType {
@@ -12,7 +12,7 @@ interface ContextType {
 }
 
 const SearchResults: React.FC = () => {
-  const [entries, setEntries] = useState<FeedEntry[]>([]);
+  const [entries, setEntries] = useState<FeedEntryWithTitle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { query } = useParams<{ query: string }>();
   const { isDarkMode, isFocused, onFocusChange, onSearchHistoryUpdate, onSearchResultTimestamp } = useOutletContext<ContextType>();
@@ -60,7 +60,7 @@ const SearchResults: React.FC = () => {
   }, [query, onSearchResultTimestamp]);
 
   // Update entries when a summary is refreshed
-  const handleEntriesUpdate = (updatedEntries: FeedEntry[]) => {
+  const handleEntriesUpdate = (updatedEntries: FeedEntryWithTitle[]) => {
     setEntries(updatedEntries);
   };
 
