@@ -8,6 +8,8 @@ interface Feed {
   lastUpdated?: Date;
   order?: number;
   unreadCount?: number;
+  isDeleted?: boolean;
+  deletedAt?: Date;
 }
 
 interface FeedEntry {
@@ -266,16 +268,12 @@ const withErrorHandling = async <T>(operation: () => Promise<T>): Promise<T> => 
   }
 };
 
-export async function markAsRead(entryId: number) {
-  return withErrorHandling(async () => {
-    const result = await db.entries.update(entryId, { 
-      isRead: true,
-      readDate: new Date()
-    });
-    notifyEntryUpdate(entryId);
-    return result;
+export const markAsRead = async (entryId: number, isRead?: boolean) => {
+  await db.entries.update(entryId, { 
+    isRead: isRead ?? true,  // If isRead is not provided, defaults to true
+    readDate: isRead ?? true ? new Date() : undefined  // Update readDate accordingly
   });
-}
+};
 
 export async function markAsListened(entryId: number) {
   const result = await db.entries.update(entryId, { 
@@ -323,7 +321,10 @@ async function addFeedTitleToEntries(entries: FeedEntry[]): Promise<FeedEntryWit
     ? await db.feeds.where('id').anyOf(feedIds).toArray()
     : [];
     
-  const feedMap = new Map(feeds.map(feed => [feed.id, feed.title]));
+  const feedMap = new Map(feeds.map(feed => [
+    feed.id, 
+    feed.isDeleted ? `${feed.title} (Deleted)` : feed.title
+  ]));
   
   return entries.map(entry => ({
     ...entry,
@@ -387,8 +388,13 @@ export async function getFolders() {
   return folders.sort((a, b) => (a.order || 0) - (b.order || 0));
 }
 
-export async function getAllFeeds() {
-  return await db.feeds.toArray();
+export async function getAllFeeds(includeDeleted: boolean = false) {
+  // Use toCollection() to maintain Table type
+  let query = db.feeds.toCollection();
+  if (!includeDeleted) {
+    query = query.filter(feed => !feed.isDeleted);
+  }
+  return await query.toArray();
 }
 
 export async function searchEntries(query: string) {
@@ -540,8 +546,14 @@ export async function clearAllAISummaries() {
 
 export async function deleteFeed(feedId: number) {
   await db.transaction('rw', [db.feeds, db.entries], async () => {
-    // Delete the feed
-    await db.feeds.delete(feedId);
+    const feed = await db.feeds.get(feedId);
+    if (!feed) return;
+
+    // Mark feed as deleted instead of deleting it
+    await db.feeds.update(feedId, {
+      isDeleted: true,
+      deletedAt: new Date()
+    });
     
     // Get all entries for this feed
     const entries = await db.entries
@@ -549,15 +561,13 @@ export async function deleteFeed(feedId: number) {
       .equals(feedId)
       .toArray();
     
-    // Update or delete entries based on their status
+    // Only delete entries that aren't starred, listened to, or have chat history
     for (const entry of entries) {
-      if (entry.isStarred || entry.chatHistory?.length) {
-        await db.entries.update(entry.id!, {
-          feedId: null
-        });
-      } else {
+      if (!entry.isStarred && !entry.isListened && !entry.chatHistory?.length) {
         await db.entries.delete(entry.id!);
       }
+      // Note: We keep entries that are starred, listened to, or have chat history
+      // and maintain their feedId for reference
     }
   });
 }
@@ -774,3 +784,9 @@ export async function updateFolderName(folderId: string, newName: string) {
 }
 
 export type { Feed, FeedEntry, FeedEntryWithTitle, Folder, SavedSearch, ChatMessage }; 
+
+export async function getFeedTitle(feedId: number): Promise<string> {
+  const feed = await db.feeds.get(feedId);
+  if (!feed) return 'Unknown Feed';
+  return feed.isDeleted ? `${feed.title} (Deleted)` : feed.title;
+}

@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { type FeedEntryWithTitle, type ChatMessage, subscribeToEntryUpdates, db } from '../services/db';
+import { type FeedEntryWithTitle, type ChatMessage, subscribeToEntryUpdates, db, getFeedTitle } from '../services/db';
 import { reprocessEntry } from '../services/feedParser';
 
 interface FeedListEntryProps {
@@ -14,7 +14,7 @@ interface FeedListEntryProps {
   isExpanded: boolean;
   onSelect: (index: number) => void;
   onFocusChange: (focused: boolean) => void;
-  onMarkAsRead: (entryId: number) => void;
+  onMarkAsRead: (entryId: number, isRead?: boolean) => void;
   onToggleStar: (entryId: number) => void;
   onToggleExpand: (entryId: number) => void;
   onContentView: (entry: FeedEntryWithTitle) => void;
@@ -44,10 +44,17 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentEntry, setCurrentEntry] = useState(entry);
   const articleRef = useRef<HTMLElement>(null);
+  const [feedTitle, setFeedTitle] = useState(entry.feedTitle);
 
   useEffect(() => {
     setCurrentEntry(entry);
   }, [entry]);
+
+  useEffect(() => {
+    if (entry.feedId) {
+      getFeedTitle(entry.feedId).then(title => setFeedTitle(title));
+    }
+  }, [entry.feedId]);
 
   useEffect(() => {
     // Subscribe to updates for this entry
@@ -235,6 +242,60 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     await navigator.clipboard.writeText(content);
   };
 
+  useEffect(() => {
+    const handleReadChange = (event: CustomEvent<{
+      entryId: number;
+      isRead: boolean;
+    }>) => {
+      if (event.detail.entryId === currentEntry.id) {
+        setCurrentEntry(prev => ({
+          ...prev,
+          isRead: event.detail.isRead
+        }));
+      }
+    };
+
+    window.addEventListener('entryReadChanged', handleReadChange as EventListener);
+    return () => {
+      window.removeEventListener('entryReadChanged', handleReadChange as EventListener);
+    };
+  }, [currentEntry.id]);
+
+  useEffect(() => {
+    const handleEntryUpdate = (event: CustomEvent<{ entry: FeedEntryWithTitle }>) => {
+      if (event.detail.entry.id === currentEntry.id) {
+        setCurrentEntry(event.detail.entry);
+      }
+    };
+
+    window.addEventListener('entryUpdated', handleEntryUpdate as EventListener);
+    return () => {
+      window.removeEventListener('entryUpdated', handleEntryUpdate as EventListener);
+    };
+  }, [currentEntry.id]);
+
+  useEffect(() => {
+    const handleRefreshStart = (event: CustomEvent<{ entryId: number }>) => {
+      if (event.detail.entryId === currentEntry.id) {
+        setIsRefreshing(true);
+      }
+    };
+
+    const handleRefreshComplete = (event: CustomEvent<{ entry: FeedEntryWithTitle }>) => {
+      if (event.detail.entry.id === currentEntry.id) {
+        setCurrentEntry(event.detail.entry);
+        setIsRefreshing(false);
+      }
+    };
+
+    window.addEventListener('entryRefreshStart', handleRefreshStart as EventListener);
+    window.addEventListener('entryRefreshComplete', handleRefreshComplete as EventListener);
+    return () => {
+      window.removeEventListener('entryRefreshStart', handleRefreshStart as EventListener);
+      window.removeEventListener('entryRefreshComplete', handleRefreshComplete as EventListener);
+    };
+  }, [currentEntry.id]);
+
   return (
     <article
       ref={articleRef}
@@ -263,7 +324,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
       <div className="flex items-center px-4 py-2 gap-4">
         <div className="flex items-center gap-1">
           <button
-            onClick={() => onMarkAsRead(currentEntry.id!)}
+            onClick={() => onMarkAsRead(currentEntry.id!, !currentEntry.isRead)}
             className={`p-1.5 rounded transition-colors ${
               isDarkMode 
                 ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700' 
@@ -330,8 +391,10 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                   className={`truncate w-[75%] text-left ${isDarkMode ? 'hover:text-blue-400' : 'hover:text-reader-blue'}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onMarkAsRead(currentEntry.id!);
-                    onOpenChat?.(currentEntry);
+                    console.log('Title clicked, opening chat for:', currentEntry.title);
+                    if (onOpenChat) {
+                      onOpenChat(currentEntry);
+                    }
                   }}
                 >
                   {currentEntry.title}
@@ -340,15 +403,29 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
             </h3>
           </div>
           <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            {currentEntry.feedTitle}
+            {feedTitle}
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
           {hasChatHistory(currentEntry) && (
-            <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${isDarkMode ? 'text-blue-400' : 'text-blue-500'}`} viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
-            </svg>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                console.log('Chat icon clicked, opening chat for:', currentEntry.title);
+                if (onOpenChat) {
+                  onOpenChat(currentEntry);
+                }
+              }}
+              className={`p-1 rounded transition-colors ${
+                isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-500 hover:text-blue-600'
+              }`}
+              title="Open chat"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+              </svg>
+            </button>
           )}
           <span>{formatDate(new Date(currentEntry.publishDate))}</span>
         </div>

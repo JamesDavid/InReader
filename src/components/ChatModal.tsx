@@ -431,7 +431,11 @@ const ChatModal: React.FC<ChatModalProps> = ({
               {articleTitle}
             </h2>
             {feedTitle && (
-              <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+              <div className={`text-sm ${
+                feedTitle.includes('(Deleted)') 
+                  ? 'italic opacity-75' 
+                  : ''
+              }`}>
                 {feedTitle}
               </div>
             )}

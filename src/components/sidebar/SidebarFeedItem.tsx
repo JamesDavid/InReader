@@ -21,6 +21,7 @@ interface SidebarFeedItemProps {
   onSelect: (index: number) => void;
   onFocusChange: (focused: boolean) => void;
   onDelete: () => Promise<void>;
+  isDeleted: boolean;
 }
 
 const getBadgeColors = (timestamp: Date | null, isDarkMode: boolean): string => {
@@ -58,6 +59,7 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
   onSelect,
   onFocusChange,
   onDelete,
+  isDeleted,
 }) => {
   const [localUnreadCount, setLocalUnreadCount] = useState<number | null>(null);
   const [isLoadingCount, setIsLoadingCount] = useState(true);
@@ -159,6 +161,12 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
     ${isDarkMode ? 'hover:bg-gray-700 text-gray-300' : 'hover:bg-gray-100 text-gray-600'}
   `;
 
+  const titleClass = `truncate ${
+    isDarkMode 
+      ? 'text-gray-300 hover:text-gray-100' 
+      : 'text-gray-700 hover:text-gray-900'
+  } ${isDeleted ? 'italic opacity-75' : ''}`;
+
   return (
     <div className="group relative">
       <Link
@@ -179,7 +187,9 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             )}
-            <span className="truncate" title={title}>{truncateTitle(title)}</span>
+            <span className={titleClass}>
+              {truncateTitle(title)}{isDeleted ? ' (Deleted)' : ''}
+            </span>
           </div>
           <div className="flex items-center justify-end flex-shrink-0">
             {localUnreadCount !== null && localUnreadCount > 0 && (

@@ -4,9 +4,12 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import SearchModal from './SearchModal';
 import ttsService from '../services/ttsService';
-import { getSavedSearches, deleteSavedSearch, type SavedSearch, type FeedEntryWithTitle, db } from '../services/db';
+import { getSavedSearches, deleteSavedSearch, type SavedSearch, type FeedEntryWithTitle, db, markAsRead } from '../services/db';
 import AddFeedModal from './AddFeedModal';
 import ChatModal from './ChatModal';
+import { refreshFeed } from '../services/feedParser';
+import { updateSearchResultCounts } from '../services/db';
+import { reprocessEntry } from '../services/feedParser';
 
 interface OutletContextType {
   isFocused: boolean;
@@ -38,9 +41,9 @@ const Layout: React.FC = () => {
   });
   const [searchHistory, setSearchHistory] = useState<SavedSearch[]>([]);
   const [showAddFeedModal, setShowAddFeedModal] = useState(false);
-  const [showChatModal, setShowChatModal] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<FeedEntryWithTitle | null>(null);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+  const [isChatModalOpen, setIsChatModalOpen] = useState(false);
 
   // Create a ref to store the focusSearch callback from Header
   const [focusSearchCallback, setFocusSearchCallback] = useState<(() => void) | null>(null);
@@ -83,18 +86,40 @@ const Layout: React.FC = () => {
 
     try {
       // Get the entry from the database to find its feed ID
-      const entry = await db.entries.get(currentArticle.id.toString());
+      const entry = await db.entries.get(currentArticle.id);
       if (!entry) return;
 
-      // Navigate to the feed view with the article ID as a search param
-      navigate(`/feed/${entry.feedId}?article=${currentArticle.id}`);
+      // Navigate to the feed view
+      navigate(`/feed/${entry.feedId}`);
       
       // Set focus to the content area
       setSidebarFocused(false);
+
+      // Wait for the feed list to load and update
+      const checkForArticle = (retries = 0, maxRetries = 10) => {
+        if (retries >= maxRetries) return;
+
+        setTimeout(() => {
+          const articleElement = document.querySelector(`[data-entry-id="${currentArticle.id}"]`);
+          if (articleElement) {
+            const index = parseInt(articleElement.getAttribute('data-index') || '0');
+            setSelectedFeedIndex(index);
+            setSelectedEntryId(currentArticle.id);
+            
+            // Ensure the article is scrolled into view
+            articleElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          } else {
+            // Try again if element not found
+            checkForArticle(retries + 1);
+          }
+        }, 100); // Check every 100ms
+      };
+
+      checkForArticle();
     } catch (error) {
       console.error('Error popping to current item:', error);
     }
-  }, [navigate]);
+  }, [navigate, setSelectedFeedIndex, setSelectedEntryId]);
 
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
@@ -103,7 +128,6 @@ const Layout: React.FC = () => {
       const isInInput = document.activeElement?.tagName === 'INPUT' || 
                        document.activeElement?.tagName === 'TEXTAREA';
       const isModalOpen = document.querySelector('.fixed.inset-0') !== null;
-      const isChatModalOpen = showChatModal;
       const isTTSKey = e.key === ']' || e.key === '\\';
 
       // Always allow TTS controls
@@ -125,8 +149,8 @@ const Layout: React.FC = () => {
       switch (e.key.toLowerCase()) {
         case 'escape': {
           e.preventDefault();
-          if (showChatModal) {
-            setShowChatModal(false);
+          if (isChatModalOpen) {
+            setIsChatModalOpen(false);
             setSelectedEntry(null);
           }
           break;
@@ -257,11 +281,9 @@ const Layout: React.FC = () => {
             setSidebarFocused(true);
           }
           break;
-        case 'l':
+        case 'l': {
           e.preventDefault();
-          if (sidebarFocused) {
-            setSidebarFocused(false);
-          } else if (selectedEntryId !== null) {
+          if (!sidebarFocused && selectedEntryId !== null) {
             const entry = await db.entries.get(selectedEntryId);
             if (entry) {
               const feed = await db.feeds.get(entry.feedId!);
@@ -269,12 +291,11 @@ const Layout: React.FC = () => {
                 ...entry,
                 feedTitle: feed?.title || 'Unknown Feed'
               });
-              setShowChatModal(true);
-              // Mark as read when opening
-              db.entries.update(selectedEntryId, { isRead: true });
+              setIsChatModalOpen(true);
             }
           }
           break;
+        }
         case 'a':
           e.preventDefault();
           setShowAddFeedModal(true);
@@ -312,7 +333,7 @@ const Layout: React.FC = () => {
           break;
         case ']':
           if (!sidebarFocused) {
-            e.preventDefault();\
+            e.preventDefault();
             ttsService.next();
           }
           break;
@@ -350,6 +371,93 @@ const Layout: React.FC = () => {
             });
           }
           break;
+        case 'm': {
+          e.preventDefault();
+          if (!sidebarFocused && selectedEntryId !== null) {
+            const entry = await db.entries.get(selectedEntryId);
+            if (entry) {
+              // Dispatch event first for immediate UI update
+              window.dispatchEvent(new CustomEvent('entryReadChanged', {
+                detail: { 
+                  entryId: selectedEntryId,
+                  isRead: !entry.isRead  // Toggle the current state
+                }
+              }));
+
+              // Then update database
+              await markAsRead(selectedEntryId, !entry.isRead);
+
+              // Dispatch event for sidebar update
+              window.dispatchEvent(new CustomEvent('entryMarkedAsRead', {
+                detail: { 
+                  feedId: entry.feedId
+                }
+              }));
+            }
+          }
+          break;
+        }
+        case 'o': {
+          e.preventDefault();
+          if (!sidebarFocused && selectedEntryId !== null) {
+            const entry = await db.entries.get(selectedEntryId);
+            if (entry?.link) {
+              window.open(entry.link, '_blank');
+            }
+          }
+          break;
+        }
+        case '0': {
+          e.preventDefault();
+          if (!sidebarFocused && selectedEntryId !== null) {
+            const entry = await db.entries.get(selectedEntryId);
+            if (entry?.link) {
+              // Open in named window for reuse
+              window.open(entry.link, 'reader_article_window');
+            }
+          }
+          break;
+        }
+        case 'u': {
+          e.preventDefault();
+          if (!sidebarFocused && selectedEntryId !== null) {
+            try {
+              // Dispatch refresh start event
+              window.dispatchEvent(new CustomEvent('entryRefreshStart', {
+                detail: { entryId: selectedEntryId }
+              }));
+
+              // Use reprocessEntry like the refresh button does
+              await reprocessEntry(selectedEntryId);
+              
+              // Get the updated entry from the database
+              const updatedEntry = await db.entries.get(selectedEntryId);
+              if (updatedEntry) {
+                // Get the feed title
+                const feed = await db.feeds.get(updatedEntry.feedId!);
+                
+                // Dispatch refresh complete event with full updated entry
+                window.dispatchEvent(new CustomEvent('entryRefreshComplete', {
+                  detail: { 
+                    entry: {
+                      ...updatedEntry,
+                      feedTitle: feed?.title || 'Unknown Feed'
+                    }
+                  }
+                }));
+              }
+            } catch (error) {
+              console.error('Failed to refresh entry:', error);
+              // Dispatch refresh complete to clear loading state even on error
+              window.dispatchEvent(new CustomEvent('entryRefreshComplete', {
+                detail: { 
+                  entry: await db.entries.get(selectedEntryId)!
+                }
+              }));
+            }
+          }
+          break;
+        }
       }
     };
 
@@ -363,7 +471,8 @@ const Layout: React.FC = () => {
     setSelectedSidebarIndex,
     setSelectedFeedIndex,
     selectedEntryId,
-    lastNavigationKey
+    lastNavigationKey,
+    isChatModalOpen
   ]);
 
   useEffect(() => {
@@ -385,7 +494,7 @@ const Layout: React.FC = () => {
 
   const handleOpenChat = (entry: FeedEntryWithTitle) => {
     setSelectedEntry(entry);
-    setShowChatModal(true);
+    setIsChatModalOpen(true);
   };
 
   const handleOpenSearch = useCallback(() => {
@@ -450,11 +559,11 @@ const Layout: React.FC = () => {
           onSuccess={() => refreshFeedsCallback?.()}
         />
       )}
-      {showChatModal && selectedEntry && (
+      {isChatModalOpen && selectedEntry && (
         <ChatModal
-          isOpen={showChatModal}
+          isOpen={isChatModalOpen}
           onClose={() => {
-            setShowChatModal(false);
+            setIsChatModalOpen(false);
             setSelectedEntry(null);
           }}
           isDarkMode={isDarkMode}

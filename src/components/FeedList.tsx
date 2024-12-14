@@ -16,7 +16,7 @@ interface ContextType {
   onSelectedIndexChange: (index: number) => void;
   selectedEntryId: number | null;
   onSelectedEntryIdChange: (id: number | null) => void;
-  onEntriesUpdate?: (entries: FeedEntryWithTitle[]) => void;
+  onOpenChat: (entry: FeedEntryWithTitle) => void;
 }
 
 interface FeedListProps {
@@ -35,6 +35,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const showUnreadOnly = context.showUnreadOnly;
   const selectedIndex = context.selectedIndex;
   const onSelectedIndexChange = context.onSelectedIndexChange;
+  const onOpenChat = context.onOpenChat;
 
   const [entries, setEntries] = useState<FeedEntryWithTitle[]>([]);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -91,35 +92,24 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     if (!isFocused || paginatedState.items.length === 0) return;
   }, [selectedIndex, isFocused, paginatedState.items.length]);
 
-  const handleMarkAsRead = useCallback(async (entryId: number) => {
-    await markAsRead(entryId);
-    // Update the entry in the local state immediately
-    setEntries(prevEntries => 
-      prevEntries.map(entry => 
-        entry.id === entryId 
-          ? { ...entry, isRead: true }
-          : entry
-      )
-    );
+  const handleMarkAsRead = useCallback(async (entryId: number, isRead?: boolean) => {
+    // Dispatch event first for immediate UI update
+    window.dispatchEvent(new CustomEvent('entryReadChanged', {
+      detail: { 
+        entryId,
+        isRead: isRead ?? true
+      }
+    }));
 
-    // Dispatch custom event for sidebar update
+    // Then update database
+    await markAsRead(entryId, isRead);
+
+    // Dispatch event for sidebar update
     const event = new CustomEvent('entryMarkedAsRead', {
       detail: { feedId: feedId ? parseInt(feedId) : null }
     });
     window.dispatchEvent(event);
-
-    // Then refresh from DB
-    const loadedEntries = props.entries 
-      ? props.entries 
-      : feedId 
-        ? await getFeedEntries(parseInt(feedId))
-        : location.pathname === '/starred'
-          ? await getStarredEntries()
-          : location.pathname === '/listened'
-            ? await getListenedEntries()
-            : await getAllEntries();
-    setEntries(loadedEntries);
-  }, [feedId, location.pathname, props.entries]);
+  }, [feedId]);
 
   const handleToggleStar = useCallback(async (entryId: number) => {
     await toggleStar(entryId);
@@ -442,6 +432,66 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     };
   }, [onSelectedIndexChange]);
 
+  // Add this effect to handle read state changes
+  useEffect(() => {
+    const handleReadChange = (event: CustomEvent<{
+      entryId: number;
+      isRead: boolean;
+    }>) => {
+      setEntries(prevEntries =>
+        prevEntries.map(entry =>
+          entry.id === event.detail.entryId
+            ? { ...entry, isRead: event.detail.isRead }
+            : entry
+        )
+      );
+    };
+
+    window.addEventListener('entryReadChanged', handleReadChange as EventListener);
+    return () => {
+      window.removeEventListener('entryReadChanged', handleReadChange as EventListener);
+    };
+  }, []);
+
+  // Add this effect to handle feed refreshes
+  useEffect(() => {
+    const handleFeedRefresh = async (event: CustomEvent<{ feedId: number }>) => {
+      // Only reload if we're viewing the refreshed feed
+      const currentFeedId = feedId ? parseInt(feedId) : null;
+      if (currentFeedId === event.detail.feedId) {
+        const loadedEntries = await getFeedEntries(event.detail.feedId);
+        setEntries(loadedEntries);
+      }
+    };
+
+    window.addEventListener('feedRefreshed', handleFeedRefresh as EventListener);
+    return () => {
+      window.removeEventListener('feedRefreshed', handleFeedRefresh as EventListener);
+    };
+  }, [feedId]);
+
+  // Add this effect to handle entry reprocessing
+  useEffect(() => {
+    const handleEntryReprocess = async (event: CustomEvent<{ entryId: number }>) => {
+      // Reload the entries to get the updated content
+      const loadedEntries = props.entries 
+        ? props.entries 
+        : feedId 
+          ? await getFeedEntries(parseInt(feedId))
+          : location.pathname === '/starred'
+            ? await getStarredEntries()
+            : location.pathname === '/listened'
+              ? await getListenedEntries()
+              : await getAllEntries();
+      setEntries(loadedEntries);
+    };
+
+    window.addEventListener('entryReprocessed', handleEntryReprocess as EventListener);
+    return () => {
+      window.removeEventListener('entryReprocessed', handleEntryReprocess as EventListener);
+    };
+  }, [feedId, location.pathname, props.entries]);
+
   return (
     <>
       <div 
@@ -489,6 +539,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
                       contentRefs.current[entry.id] = element;
                     }
                   }}
+                  onOpenChat={onOpenChat}
                 />
               ))}
               <PaginationFooter />

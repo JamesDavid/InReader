@@ -426,20 +426,18 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const handleUpdateFeedOrder = async (updates: { feedId: number; folderId: string | null; order: number }[]) => {
     try {
-      // Convert string folderId to number or null
-      const convertedUpdates = updates.map(update => ({
-        ...update,
-        folderId: update.folderId ? parseInt(update.folderId) : null
-      }));
+      // Only allow reordering non-deleted feeds
+      const activeFeeds = await getAllFeeds(false);
+      const activeFeedIds = new Set(activeFeeds.map(f => f.id));
       
-      // Wait for the update to complete
-      await updateFeedOrder(convertedUpdates);
+      const validUpdates = updates.filter(update => 
+        activeFeedIds.has(update.feedId)
+      );
       
-      // Only reload data after the update is successful
+      await updateFeedOrder(validUpdates);
       await loadData();
     } catch (error) {
       console.error('Error updating feed order:', error);
-      // Force a reload to ensure UI is in sync with database
       await loadData();
     }
   };

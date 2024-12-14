@@ -1,5 +1,5 @@
 import { addEntry, addFeed, type Feed, type FeedEntry, db, notifyEntryUpdate } from './db';
-import { enqueueRequest } from './requestQueueService';
+import { enqueueRequest, getQueueStats } from './requestQueueService';
 import { fetchArticleContent } from './articleService';
 import { generateSummary, loadOllamaConfig } from './ollamaService';
 import TurndownService from 'turndown';
@@ -210,48 +210,43 @@ async function processNewEntries(feedId: number, feedTitle: string, items: Parse
 }
 
 // Re-enqueue an entry for processing
-export async function reprocessEntry(entryId: number) {
-  try {
-    // Get the entry to check if it exists
-    const entry = await db.entries.get(entryId);
-    if (!entry) {
-      throw new Error('Entry not found');
-    }
+export const reprocessEntry = async (entryId: number) => {
+  // Check if entry is already being processed
+  const queueStats = getQueueStats();
+  const isAlreadyQueued = queueStats.requests.some(req => 
+    req.entryId === entryId && 
+    (req.status === 'queued' || req.status === 'processing')
+  );
 
-    // Check if Ollama is configured
-    const config = loadOllamaConfig();
-    if (!config || !config.serverUrl || !config.summaryModel) {
-      throw new Error('Ollama not configured - please configure Ollama settings first');
-    }
-
-    // Reset the entry's processing status and clear previous results
-    await db.entries.update(entryId, {
-      requestProcessingStatus: 'pending',
-      lastRequestAttempt: null,
-      requestError: null,
-      content_aiSummary: null,
-      content_fullArticle: null,
-      aiSummaryMetadata: null
-    });
-
-    // Process the entry again
-    return processEntry(entryId);
-  } catch (error) {
-    console.error('Error reprocessing entry:', error);
-    // Update entry status to failed
-    await db.entries.update(entryId, {
-      requestProcessingStatus: 'failed',
-      lastRequestAttempt: new Date(),
-      requestError: {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        code: (error as any).code,
-        details: (error as any).details
-      }
-    });
-    notifyEntryUpdate(entryId);
-    throw error;
+  if (isAlreadyQueued) {
+    console.log('Entry already in queue:', entryId);
+    return; // Skip if already queued or processing
   }
-}
+
+  const entry = await db.entries.get(entryId);
+  if (!entry) {
+    throw new Error('Entry not found');
+  }
+
+  // Check if Ollama is configured
+  const config = loadOllamaConfig();
+  if (!config || !config.serverUrl || !config.summaryModel) {
+    throw new Error('Ollama not configured - please configure Ollama settings first');
+  }
+
+  // Reset the entry's processing status and clear previous results
+  await db.entries.update(entryId, {
+    requestProcessingStatus: 'pending',
+    lastRequestAttempt: null,
+    requestError: null,
+    content_aiSummary: null,
+    content_fullArticle: null,
+    aiSummaryMetadata: null
+  });
+
+  // Process the entry again
+  return processEntry(entryId);
+};
 
 export async function addNewFeed(url: string, folderId?: number) {
   try {

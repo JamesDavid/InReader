@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useOutletContext } from 'react-router-dom';
-import { searchEntries, saveSearch, updateSearchResultCounts, type FeedEntry, type FeedEntryWithTitle } from '../services/db';
+import { searchEntries, saveSearch, updateSearchResultCounts, type FeedEntry, type FeedEntryWithTitle, getFeedTitle } from '../services/db';
 import FeedList from './FeedList';
 
 interface ContextType {
@@ -63,6 +63,25 @@ const SearchResults: React.FC = () => {
   const handleEntriesUpdate = (updatedEntries: FeedEntryWithTitle[]) => {
     setEntries(updatedEntries);
   };
+
+  // Add useEffect to update feed titles for deleted feeds
+  useEffect(() => {
+    const updateFeedTitles = async () => {
+      const updatedEntries = await Promise.all(entries.map(async entry => {
+        if (entry.feedId) {
+          const feedTitle = await getFeedTitle(entry.feedId);
+          return {
+            ...entry,
+            feedTitle
+          };
+        }
+        return entry;
+      }));
+      setEntries(updatedEntries);
+    };
+
+    updateFeedTitles();
+  }, [entries]);
 
   if (isLoading) {
     return (

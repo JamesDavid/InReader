@@ -3,6 +3,7 @@ import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautif
 import { PlusIcon, FolderIcon, RssIcon, XMarkIcon, TrashIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, PencilIcon } from '@heroicons/react/24/outline';
 import { StrictModeDroppable } from './StrictModeDroppable';
 import { importOpml, exportOpml } from '../services/opmlService';
+import { getAllFeeds } from '../services/db';
 
 interface Folder {
   id: string;
@@ -13,6 +14,7 @@ interface Feed {
   id: number;
   title: string;
   folderId: string | null;
+  isDeleted: boolean;
 }
 
 interface FeedManagementModalProps {
@@ -69,6 +71,7 @@ const DraggableFeed: React.FC<DraggableFeedProps> = ({
           {...provided.draggableProps}
           {...provided.dragHandleProps}
           className={`flex items-center justify-between p-2 mb-2 rounded shadow-sm
+            ${feed.isDeleted ? 'opacity-75 italic' : ''}
             ${snapshot.isDragging
               ? isDarkMode ? 'bg-gray-700' : 'bg-blue-50'
               : isDarkMode ? 'bg-gray-800' : 'bg-white'
@@ -93,28 +96,34 @@ const DraggableFeed: React.FC<DraggableFeedProps> = ({
                 } border`}
               />
             ) : (
-              <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>{feed.title}</span>
+              <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>
+                {feed.title}{feed.isDeleted ? ' (Deleted)' : ''}
+              </span>
             )}
           </div>
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => onStartEdit(feed.id, feed.title)}
-              className={`p-1 rounded-full ${
-                isDarkMode
-                  ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200'
-                  : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
-              }`}
-              title="Rename feed"
-            >
-              <PencilIcon className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => onDelete(feed.id)}
-              className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 p-1 rounded"
-              title="Delete feed"
-            >
-              <XMarkIcon className="w-4 h-4" />
-            </button>
+            {!feed.isDeleted && (
+              <>
+                <button
+                  onClick={() => onStartEdit(feed.id, feed.title)}
+                  className={`p-1 rounded-full ${
+                    isDarkMode
+                      ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200'
+                      : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
+                  }`}
+                  title="Rename feed"
+                >
+                  <PencilIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => onDelete(feed.id)}
+                  className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 p-1 rounded"
+                  title="Delete feed"
+                >
+                  <XMarkIcon className="w-4 h-4" />
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -271,6 +280,7 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
 
   // Initialize organization state and folder order
   useEffect(() => {
@@ -637,6 +647,23 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
               </StrictModeDroppable>
             </DragDropContext>
           </div>
+        </div>
+
+        {/* Add toggle for showing deleted feeds */}
+        <div className="flex items-center gap-2 mb-4">
+          <input
+            type="checkbox"
+            id="showDeleted"
+            checked={showDeleted}
+            onChange={(e) => setShowDeleted(e.target.checked)}
+            className={`rounded ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}
+          />
+          <label 
+            htmlFor="showDeleted"
+            className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}
+          >
+            Show deleted feeds
+          </label>
         </div>
       </div>
     </div>
