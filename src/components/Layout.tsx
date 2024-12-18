@@ -11,6 +11,64 @@ import { refreshFeed } from '../services/feedParser';
 import { updateSearchResultCounts } from '../services/db';
 import { reprocessEntry } from '../services/feedParser';
 
+// Add Toast component
+const Toast: React.FC<{ message: string; type: 'success' | 'error'; onClose: () => void }> = ({ 
+  message, 
+  type,
+  onClose 
+}) => {
+  useEffect(() => {
+    // Auto dismiss after 3 seconds
+    const timer = setTimeout(() => {
+      onClose();
+    }, 3000);
+
+    // Dismiss on any input
+    const handleInput = () => {
+      onClose();
+    };
+
+    window.addEventListener('keydown', handleInput);
+    window.addEventListener('mousedown', handleInput);
+    window.addEventListener('touchstart', handleInput);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('keydown', handleInput);
+      window.removeEventListener('mousedown', handleInput);
+      window.removeEventListener('touchstart', handleInput);
+    };
+  }, [onClose]);
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-black bg-opacity-50 z-50" onClick={onClose} />
+      {/* Toast */}
+      <div className={`fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
+        px-8 py-4 rounded-lg shadow-xl transition-all duration-300
+        ${type === 'success' 
+          ? 'bg-green-500 text-white' 
+          : 'bg-red-500 text-white'}
+        z-50 font-medium text-lg min-w-[200px] text-center`}
+      >
+        <div className="flex items-center justify-center gap-2">
+          {type === 'success' ? (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+          )}
+          {message}
+        </div>
+      </div>
+    </>
+  );
+};
+
 interface OutletContextType {
   isFocused: boolean;
   isDarkMode: boolean;
@@ -44,6 +102,7 @@ const Layout: React.FC = () => {
   const [selectedEntry, setSelectedEntry] = useState<FeedEntryWithTitle | null>(null);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   // Create a ref to store the focusSearch callback from Header
   const [focusSearchCallback, setFocusSearchCallback] = useState<(() => void) | null>(null);
@@ -120,6 +179,16 @@ const Layout: React.FC = () => {
       console.error('Error popping to current item:', error);
     }
   }, [navigate, setSelectedFeedIndex, setSelectedEntryId]);
+
+  useEffect(() => {
+    // Add toast event listener
+    const handleToast = (event: CustomEvent<{ message: string; type: 'success' | 'error' }>) => {
+      setToast(event.detail);
+    };
+
+    window.addEventListener('showToast', handleToast as EventListener);
+    return () => window.removeEventListener('showToast', handleToast as EventListener);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
@@ -265,9 +334,10 @@ const Layout: React.FC = () => {
           }
           break;
         }
-        case ' ': {
-          if (!sidebarFocused) {
-            e.preventDefault();
+        case ' ':
+        case '\'': {
+          e.preventDefault();
+          if (!sidebarFocused && selectedEntryId !== null) {
             // Check if chat modal is open
             const chatModal = document.querySelector('[data-chat-modal]');
             if (chatModal) {
@@ -278,10 +348,52 @@ const Layout: React.FC = () => {
               return;
             }
 
-            // If chat modal is not open and we have a selected entry, dispatch expand event
-            if (selectedEntryId !== null) {
-              window.dispatchEvent(new CustomEvent('toggleEntryExpand', {
-                detail: { entryId: selectedEntryId }
+            console.log('Copy hotkey pressed:', e.key);
+            // If chat modal is not open, copy the article
+            const entry = await db.entries.get(selectedEntryId);
+            if (entry) {
+              console.log('Found entry to copy:', entry.title);
+              const feed = await db.feeds.get(entry.feedId!);
+              const feedTitle = feed?.title || 'Unknown Feed';
+              const fullEntry = { ...entry, feedTitle };
+              
+              const formatForSharing = (entry: FeedEntryWithTitle): string => {
+                const formatDate = (date: Date) => {
+                  return date.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  });
+                };
+
+                const parts = [
+                  `${entry.title}`,
+                  entry.feedTitle ? `From: ${entry.feedTitle}` : '',
+                  `Published: ${formatDate(new Date(entry.publishDate))}`,
+                  `Source: ${entry.link}`,
+                  '',
+                  entry.content_aiSummary ? `\nSummary${
+                    entry.aiSummaryMetadata?.model 
+                      ? ` (${entry.aiSummaryMetadata.model} - ${
+                          entry.aiSummaryMetadata.isFullContent ? 'Full article' : 'RSS preview'
+                        })`
+                      : ''
+                  }:\n\n${entry.content_aiSummary}` : '',
+                  '',
+                  '\nFull Content:\n',
+                  entry.content_fullArticle || entry.content_rssAbstract
+                ];
+
+                return parts.filter(Boolean).join('\n');
+              };
+
+              const content = formatForSharing(fullEntry);
+              await navigator.clipboard.writeText(content);
+              window.dispatchEvent(new CustomEvent('showToast', {
+                detail: { 
+                  message: 'Article copied to clipboard',
+                  type: 'success'
+                }
               }));
             }
           }
@@ -506,6 +618,104 @@ const Layout: React.FC = () => {
           }
           break;
         }
+        case '-': {
+          e.preventDefault();
+          console.log('Email hotkey pressed');
+          if (!sidebarFocused && selectedEntryId !== null) {
+            console.log('Fetching entry with ID:', selectedEntryId);
+            const entry = await db.entries.get(selectedEntryId);
+            if (entry) {
+              console.log('Found entry:', entry.title);
+              const feed = await db.feeds.get(entry.feedId!);
+              const feedTitle = feed?.title || 'Unknown Feed';
+              const fullEntry = { ...entry, feedTitle };
+              console.log('Prepared full entry with feed title:', feedTitle);
+              
+              // Format the content for email
+              const formatForSharing = (entry: FeedEntryWithTitle): string => {
+                const formatDate = (date: Date) => {
+                  return date.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  });
+                };
+
+                const parts = [
+                  `${entry.title}`,
+                  entry.feedTitle ? `From: ${entry.feedTitle}` : '',
+                  `Published: ${formatDate(new Date(entry.publishDate))}`,
+                  `Source: ${entry.link}`,
+                  '',
+                  entry.content_aiSummary ? `\nSummary${
+                    entry.aiSummaryMetadata?.model 
+                      ? ` (${entry.aiSummaryMetadata.model} - ${
+                          entry.aiSummaryMetadata.isFullContent ? 'Full article' : 'RSS preview'
+                        })`
+                      : ''
+                  }:\n\n${entry.content_aiSummary}` : '',
+                  '',
+                  '\nFull Content:\n',
+                  entry.content_fullArticle || entry.content_rssAbstract
+                ];
+
+                return parts.filter(Boolean).join('\n');
+              };
+
+              const content = formatForSharing(fullEntry);
+              console.log('Formatted content length:', content.length);
+              const subject = encodeURIComponent(`Via InReader: ${entry.title}`);
+              const body = encodeURIComponent(content);
+              const mailtoUrl = `mailto:?subject=${subject}&body=${body}`;
+              console.log('Generated mailto URL:', mailtoUrl.substring(0, 100) + '...');
+              
+              try {
+                // Show a toast to indicate we're trying to open the email client
+                window.dispatchEvent(new CustomEvent('showToast', {
+                  detail: { 
+                    message: 'Opening email client...',
+                    type: 'success'
+                  }
+                }));
+
+                // Create an invisible anchor element
+                const link = document.createElement('a');
+                link.href = mailtoUrl;
+                link.style.display = 'none';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                // If we're still here after 2 seconds, show the error message
+                setTimeout(() => {
+                  window.dispatchEvent(new CustomEvent('showToast', {
+                    detail: { 
+                      message: 'No email client responded. Please check your default email app settings.',
+                      type: 'error'
+                    }
+                  }));
+                }, 2000);
+
+              } catch (error) {
+                console.error('Failed to open email client:', error);
+                window.dispatchEvent(new CustomEvent('showToast', {
+                  detail: { 
+                    message: 'Unable to open email client. Please check your default email app.',
+                    type: 'error'
+                  }
+                }));
+              }
+            } else {
+              console.log('No entry found with ID:', selectedEntryId);
+            }
+          } else {
+            console.log('Email hotkey ignored - sidebar focused or no entry selected', {
+              sidebarFocused,
+              selectedEntryId
+            });
+          }
+          break;
+        }
       }
     };
 
@@ -631,6 +841,13 @@ const Layout: React.FC = () => {
         isDarkMode={isDarkMode}
         onSearchHistoryUpdate={loadSearchHistory}
       />
+      {toast && (
+        <Toast 
+          message={toast.message} 
+          type={toast.type} 
+          onClose={() => setToast(null)} 
+        />
+      )}
     </div>
   );
 };

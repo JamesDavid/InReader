@@ -216,6 +216,60 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   const handleCopy = useCallback(async () => {
     const content = formatForSharing(currentEntry);
     await navigator.clipboard.writeText(content);
+    // Dispatch custom event for toast notification
+    window.dispatchEvent(new CustomEvent('showToast', {
+      detail: { 
+        message: 'Article copied to clipboard',
+        type: 'success'
+      }
+    }));
+  }, [currentEntry]);
+
+  const handleEmail = useCallback(async () => {
+    console.log('Email button clicked');
+    const content = formatForSharing(currentEntry);
+    console.log('Formatted content length:', content.length);
+    const subject = encodeURIComponent(`Via InReader: ${currentEntry.title}`);
+    const body = encodeURIComponent(content);
+    const mailtoUrl = `mailto:?subject=${subject}&body=${body}`;
+    console.log('Generated mailto URL:', mailtoUrl.substring(0, 100) + '...');
+    
+    try {
+      // Show a toast to indicate we're trying to open the email client
+      window.dispatchEvent(new CustomEvent('showToast', {
+        detail: { 
+          message: 'Opening email client...',
+          type: 'success'
+        }
+      }));
+
+      // Create an invisible anchor element
+      const link = document.createElement('a');
+      link.href = mailtoUrl;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // If we're still here after 2 seconds, show the error message
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('showToast', {
+          detail: { 
+            message: 'No email client responded. Please check your default email app settings.',
+            type: 'error'
+          }
+        }));
+      }, 2000);
+
+    } catch (error) {
+      console.error('Failed to open email client:', error);
+      window.dispatchEvent(new CustomEvent('showToast', {
+        detail: { 
+          message: 'Unable to open email client. Please check your default email app.',
+          type: 'error'
+        }
+      }));
+    }
   }, [currentEntry]);
 
   // Memoize content length calculation
@@ -282,13 +336,21 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   };
 
   const formatForSharing = (entry: FeedEntryWithTitle): string => {
+    const formatDate = (date: Date) => {
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    };
+
     const parts = [
       `${entry.title}`,
       entry.feedTitle ? `From: ${entry.feedTitle}` : '',
-      `Published: ${formatDateForCopy(new Date(entry.publishDate))}`,
+      `Published: ${formatDate(new Date(entry.publishDate))}`,
       `Source: ${entry.link}`,
       '',
-      entry.content_aiSummary ? `Summary${
+      entry.content_aiSummary ? `\nSummary${
         entry.aiSummaryMetadata?.model 
           ? ` (${entry.aiSummaryMetadata.model} - ${
               entry.aiSummaryMetadata.isFullContent ? 'Full article' : 'RSS preview'
@@ -296,7 +358,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
           : ''
       }:\n\n${entry.content_aiSummary}` : '',
       '',
-      'Full Content:',
+      '\nFull Content:\n',
       entry.content_fullArticle || entry.content_rssAbstract
     ];
 
@@ -658,6 +720,20 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                   <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
                 </svg>
                 <span>Copy</span>
+              </button>
+              <button
+                onClick={handleEmail}
+                className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
+                  ${isDarkMode 
+                    ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                    : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}
+                title="Email article"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                  <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                </svg>
+                <span>Email</span>
               </button>
             </div>
           </div>
