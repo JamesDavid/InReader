@@ -64,32 +64,42 @@ async function processEntry(entryId: number) {
       lastRequestAttempt: new Date(),
       requestError: undefined,
       content_aiSummary: undefined,
-      content_fullArticle: undefined,
       aiSummaryMetadata: undefined
     });
     notifyEntryUpdate(entryId);
 
-    // Step 1: Fetch full article content
+    // Step 1: Get or fetch article content
     let articleContent;
     let isFullContent = true;
-    try {
-      console.log('Fetching article content for:', entry.title);
-      articleContent = await fetchArticleContent(entry.link, entryId);
-      console.log('Successfully fetched article content for:', entry.title);
 
-      // Update entry with fetched content
-      await db.entries.update(entryId, {
-        content_fullArticle: articleContent.content
-      });
-      notifyEntryUpdate(entryId);
-    } catch (error) {
-      console.log('Failed to fetch full article, falling back to RSS content:', error);
-      // Fall back to RSS content
+    // If we already have full article content, use it
+    if (entry.content_fullArticle) {
+      console.log('Using existing full article content for:', entry.title);
       articleContent = {
-        content: entry.content_rssAbstract,
-        isFullContent: false
+        content: entry.content_fullArticle,
+        isFullContent: true
       };
-      isFullContent = false;
+    } else {
+      // Otherwise try to fetch it
+      try {
+        console.log('Fetching article content for:', entry.title);
+        articleContent = await fetchArticleContent(entry.link, entryId);
+        console.log('Successfully fetched article content for:', entry.title);
+
+        // Update entry with fetched content
+        await db.entries.update(entryId, {
+          content_fullArticle: articleContent.content
+        });
+        notifyEntryUpdate(entryId);
+      } catch (error) {
+        console.log('Failed to fetch full article, falling back to RSS content:', error);
+        // Fall back to RSS content
+        articleContent = {
+          content: entry.content_rssAbstract,
+          isFullContent: false
+        };
+        isFullContent = false;
+      }
     }
 
     // Step 2: Generate AI summary if Ollama is configured
@@ -234,13 +244,13 @@ export const reprocessEntry = async (entryId: number) => {
     throw new Error('Ollama not configured - please configure Ollama settings first');
   }
 
-  // Reset the entry's processing status and clear previous results
+  // Reset the entry's processing status but preserve full article content if it exists
   await db.entries.update(entryId, {
     requestProcessingStatus: 'pending',
     lastRequestAttempt: null,
     requestError: null,
     content_aiSummary: null,
-    content_fullArticle: null,
+    content_fullArticle: entry.content_fullArticle,  // Preserve existing full article content
     aiSummaryMetadata: null
   });
 

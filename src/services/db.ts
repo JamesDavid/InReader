@@ -850,3 +850,11 @@ export type { Feed, FeedEntry, FeedEntryWithTitle, Folder, SavedSearch, ChatMess
 export function clearFeedTitleCache() {
   feedTitleCache.clear();
 }
+
+export async function getUnreadCount(feedId: number): Promise<number> {
+  return await db.entries
+    .where('feedId')
+    .equals(feedId)
+    .filter(entry => !entry.isRead)
+    .count();
+}
