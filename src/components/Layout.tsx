@@ -328,18 +328,18 @@ const Layout: React.FC = () => {
             const entry = await db.entries.get(selectedEntryId);
             if (entry) {
               console.log('Adding to TTS queue:', entry.title);
+              let feedTitle = 'Unknown Feed';
+              if (entry.feedId) {
+                const feed = await db.feeds.get(entry.feedId);
+                feedTitle = feed?.title || 'Unknown Feed';
+              }
               const ttsEntry = {
-                ...entry,
                 id: entry.id!,
-                content: entry.content_fullArticle || entry.content_rssAbstract,
-                chatHistory: entry.chatHistory
-                  ?.filter(msg => msg.role === 'user' || msg.role === 'assistant')
-                  .map((msg, index) => ({
-                    id: index,
-                    role: msg.role as 'user' | 'assistant',
-                    content: msg.content,
-                    timestamp: new Date()
-                  }))
+                title: entry.title,
+                content_fullArticle: entry.content_fullArticle,
+                content_rssAbstract: entry.content_rssAbstract,
+                content_aiSummary: entry.content_aiSummary,
+                feedTitle: feedTitle
               };
               ttsService.addToQueue(ttsEntry);
             }
@@ -357,10 +357,44 @@ const Layout: React.FC = () => {
             ttsService.togglePlayPause();
           }
           break;
-        case 'p':
-          e.preventDefault();
-          handlePopToCurrentItem();
+        case 'p': {
+          if (e.shiftKey && !sidebarFocused) {
+            e.preventDefault();
+            // Dispatch event for previous page
+            const feedListElement = document.querySelector('main [data-current-page]');
+            if (feedListElement) {
+              const currentPage = parseInt(feedListElement.getAttribute('data-current-page') || '1');
+              if (currentPage > 1) {
+                window.dispatchEvent(new CustomEvent('feedListPageChange', {
+                  detail: { 
+                    page: currentPage - 1,
+                    direction: 'prev'
+                  }
+                }));
+              }
+            }
+          } else if (e.ctrlKey && !sidebarFocused) {
+            e.preventDefault();
+            // Dispatch event for next page
+            const feedListElement = document.querySelector('main [data-current-page]');
+            if (feedListElement) {
+              const currentPage = parseInt(feedListElement.getAttribute('data-current-page') || '1');
+              const totalPages = parseInt(feedListElement.getAttribute('data-total-pages') || '1');
+              if (currentPage < totalPages) {
+                window.dispatchEvent(new CustomEvent('feedListPageChange', {
+                  detail: { 
+                    page: currentPage + 1,
+                    direction: 'next'
+                  }
+                }));
+              }
+            }
+          } else {
+            e.preventDefault();
+            handlePopToCurrentItem();
+          }
           break;
+        }
         case 'i':
           if (!sidebarFocused && selectedEntryId !== null) {
             e.preventDefault();

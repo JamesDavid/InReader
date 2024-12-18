@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import ttsService from '../services/ttsService';
-import { getFeedTitle } from '../services/db';
 
 interface TTSQueueStatusProps {
   isDarkMode: boolean;
@@ -41,21 +40,6 @@ const TTSQueueStatus: React.FC<TTSQueueStatusProps> = ({ isDarkMode }) => {
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, [isExpanded]);
-
-  // Add useEffect to update feed titles for deleted feeds
-  useEffect(() => {
-    const updateFeedTitles = async () => {
-      if (currentArticle?.feedId) {
-        const feedTitle = await getFeedTitle(currentArticle.feedId);
-        setCurrentArticle(prev => prev ? {
-          ...prev,
-          source: feedTitle
-        } : null);
-      }
-    };
-
-    updateFeedTitles();
-  }, [currentArticle?.feedId]);
 
   if (!isPlaying && queueLength === 0) {
     return null;

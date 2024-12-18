@@ -185,7 +185,7 @@ class TTSService {
     oscillator.stop(this.audioContext.currentTime + 0.3);
   }
 
-  async addToQueue(entry: FeedEntry) {
+  async addToQueue(entry: { id: number; title: string; content_fullArticle?: string; content_rssAbstract?: string; content_aiSummary?: string; feedTitle?: string }) {
     // Check if the article is currently playing
     if (this.currentArticle?.id === entry.id) {
       this.playDuplicateSound();
@@ -196,13 +196,6 @@ class TTSService {
     if (this.queue.some(article => article.id !== undefined && article.id === entry.id)) {
       this.playDuplicateSound();
       return;
-    }
-
-    // Always get the latest feed title from database
-    let source = 'Unknown Source';
-    if (entry.feedId) {
-      const feed = await db.feeds.get(entry.feedId);
-      source = feed?.title || 'Unknown Source';
     }
 
     // Determine which content to use, preferring full article over RSS abstract
@@ -218,9 +211,9 @@ class TTSService {
     const cleanSummary = entry.content_aiSummary ? this.cleanTextForSpeech(entry.content_aiSummary) : undefined;
 
     const article: QueuedArticle = {
-      id: entry.id!,
+      id: entry.id,
       title: entry.title,
-      source,
+      source: entry.feedTitle || 'Unknown Feed',
       summary: cleanSummary,
       content: cleanContent
     };

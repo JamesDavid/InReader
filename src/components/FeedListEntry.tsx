@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { type FeedEntryWithTitle, type ChatMessage, subscribeToEntryUpdates, db, getFeedTitle } from '../services/db';
 import { reprocessEntry } from '../services/feedParser';
+import ttsService from '../services/ttsService';
 
 interface FeedListEntryProps {
   entry: FeedEntryWithTitle;
@@ -390,6 +391,26 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     };
   }, [currentEntry.id]);
 
+  const handleTTS = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent selection change
+    const content = currentEntry.content_fullArticle || currentEntry.content_rssAbstract;
+    if (content && currentEntry.id && isSelected) {
+      console.log('Adding to TTS queue:', {
+        id: currentEntry.id,
+        title: currentEntry.title,
+        isSelected
+      });
+      ttsService.addToQueue({
+        id: currentEntry.id,
+        title: currentEntry.title,
+        content_fullArticle: currentEntry.content_fullArticle,
+        content_rssAbstract: currentEntry.content_rssAbstract,
+        content_aiSummary: currentEntry.content_aiSummary,
+        feedTitle: feedTitle
+      });
+    }
+  }, [currentEntry, isSelected, feedTitle]);
+
   return (
     <article
       ref={articleRef}
@@ -610,24 +631,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
             )}
             <div className="flex items-center gap-2 ml-auto">
               <button
-                onClick={(e) => {
-                  e.stopPropagation(); // Prevent selection change
-                  const content = entry.content_fullArticle || entry.content_rssAbstract;
-                  if (content && entry.id && isSelected) { // Use entry instead of currentEntry
-                    console.log('Adding to TTS queue:', {
-                      id: entry.id,
-                      title: entry.title,
-                      isSelected
-                    });
-                    ttsService.addToQueue({
-                      id: entry.id,
-                      title: entry.title,
-                      source: entry.feedTitle,
-                      summary: entry.content_aiSummary,
-                      content: content
-                    });
-                  }
-                }}
+                onClick={handleTTS}
                 disabled={!isSelected} // Disable if not selected
                 className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
                   ${isDarkMode 

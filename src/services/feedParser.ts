@@ -368,13 +368,13 @@ export async function refreshFeeds(feeds: Feed[]) {
             })
           )
         );
-
-        // Notify that this feed has been refreshed
-        window.dispatchEvent(new CustomEvent('feedRefreshed', {
-          detail: { feedId: feed.id }
-        }));
       }
-      
+
+      // Notify that this feed has been refreshed
+      window.dispatchEvent(new CustomEvent('feedRefreshed', {
+        detail: { feedId: feed.id }
+      }));
+
       return { feed, newEntryIds };
     } catch (error) {
       console.error('Error refreshing feed:', feed.title, error);
