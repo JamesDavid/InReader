@@ -7,13 +7,44 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 ## ✨ Key Features
 
 ### 🎯 Core Features
-- **Smart Feed Management** - Subscribe, organize, and never miss important content
-- **AI-Powered Summaries** - Get the TL;DR with intelligent article summaries
-- **Chat with Articles** - Have conversations about any article with AI
-- **Keyboard Warrior Mode** - Navigate at the speed of thought with vim-style shortcuts
-- **Dark Mode** - Easy on the eyes, day or night
-- **Text-to-Speech** - Listen to your articles while multitasking
-- **Synchronized Navigation** - Seamless keyboard and mouse navigation with URL sync
+- **Smart Feed Management** - Subscribe, organize, and refresh feeds with automatic content extraction
+- **Feed Organization** - Folder support with drag-and-drop organization
+- **Visual Feed Status** - Color-coded unread badges to track content freshness
+- **Full Article Extraction** - Automatic fetching of complete article content
+- **AI-Powered Summaries** - Local LLM summaries via Ollama integration
+- **Chat with Articles** - Interactive AI discussions about article content
+- **Keyboard-First Design** - Vim-style navigation and comprehensive shortcuts
+- **Dark Mode** - Modern, eye-friendly dark theme
+- **Text-to-Speech** - Queue-based article playback with progress tracking
+- **Smart Navigation** - URL-synced navigation with keyboard and mouse support
+- **Offline Support** - IndexedDB-based local storage for articles and feeds
+- **Search** - Full-text search with saved search history
+
+### 🔄 Technical Features
+#### Feed System
+- Parallel feed refresh with stalled entry detection
+- Smart duplicate entry detection
+- Automatic metadata extraction
+- Unread count tracking with visual indicators
+
+#### Article Management
+- Full article content extraction with RSS preview fallback
+- Read/unread and star/favorite system
+- Multiple viewing options (inline, new tab, reusable window)
+- Processing status indicators with error handling
+
+#### AI & TTS Integration
+- Local LLM support via Ollama for privacy
+- Configurable AI models for summaries
+- Streaming chat responses with history tracking
+- Queue-based TTS playback with progress tracking
+- Automatic duplicate detection in TTS queue
+
+#### Data & Search
+- IndexedDB storage with automatic migrations
+- Efficient batch operations and caching
+- Full-text search with history tracking
+- Result count and recency tracking
 
 ### ⌨️ Keyboard Shortcuts
 
@@ -21,52 +52,39 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 - `j` - Move down one item
 - `k` - Move up one item
 - `h` - Return to feed list/sidebar
-- `l` - Open selected article/move to article list
+- `l` - Open selected article/move to article list or open chat with current article
 - `/` - Focus search bar
 - `Escape` - Clear search/Close modals
-- `Tab` - Switch focus between sidebar and main content
+- `Space` - Scroll article / expand article content
 
 #### Article Management
-- `m` - Mark item as read/unread
-- `i` - Star/unstar item
+- `m` - Toggle read/unread status
+- `i` - Toggle star status
 - `o` - Open article in new tab
-- `Space` - Scroll article / expand RSS content
-- `u` - Refresh current feed
+- `0` - Open article in reusable window
+- `u` - Refresh current article content and summary
 - `r` - Refresh all feeds
 - `a` - Add new feed
 
 #### Text-to-Speech & AI Features
-- `[` - When article is in focus, add the current article to TTS queue
-- `l` - When article is in focus, chat with current article
-- `[` - When a feed is in focus, add 5 most recent unread items from current feed to TTS queue
+- `[` - Add current article to TTS queue (when in article list)
+- `[` - Add 5 most recent unread items to TTS queue (when in feed list)
 - `]` - Skip to next TTS item
 - `\` - Toggle TTS play/pause
 - `p` - Pop to currently playing article
+- `Shift+P` - Go to previous page
+- `Ctrl+P` - Go to next page
 
-#### Playback Controls
-- `]` - Next TTS item
-- `\` - Play/Pause TTS
-- `p` - Jump to currently playing article
+### 🎨 Visual Indicators
 
-### 🤖 AI Capabilities
-- Local LLM support via Ollama for privacy
-- Intelligent content extraction
-- Streaming chat responses
-- Configurable AI models
+#### Feed Badge Colors
+The unread count badge for each feed changes color based on the most recent unread entry:
+- **Dark Purple** - Content from the last hour
+- **Dark Blue** - Content from the last 24 hours
+- **Light Blue** - Content from the last week
+- **Gray** - Older content
 
-### 🎧 TTS Features
-- Queue management for articles
-- Automatic duplicate detection
-- Progress tracking
-- Queue status indicator in header
-
-### ⌨️ Power User Features
-- Vim-style keyboard navigation (`j`, `k`, `h`, `l`)
-- Quick search with `/`
-- Smart content interaction with `Space`
-- Full keyboard control for everything!
-- Smooth selection syncing between keyboard and mouse interactions
-- Smart URL state management
+This color-coding system helps you quickly identify feeds with fresh content and prioritize your reading.
 
 ## 🚀 Getting Started
 
@@ -87,7 +105,7 @@ npm install
 npm run dev
 ```
 
-## 🛠️ Tech Stack
+## 🛠�� Tech Stack
 - ⚛️ React
 - 📘 TypeScript
 - 🎨 Tailwind CSS
@@ -115,28 +133,17 @@ src/
 └── App.tsx              # Root component
 ```
 
-## 🔄 State Management
-- Uses React's built-in state management with hooks
-- IndexedDB for persistent storage via Dexie.js
-- Real-time feed refresh tracking
-- Efficient unread count management
-- Smart selection state synchronization
-- URL-based navigation state
+## 🔄 License
 
-## 🎯 Implementation Details
-- **Feed Parsing**: Server-side feed parsing with error handling
-- **Folder Management**: Drag-and-drop ready folder structure
-- **Search Integration**: Built-in search with history tracking
-- **Responsive Design**: Mobile-friendly layout with Tailwind CSS
-- **Type Safety**: Full TypeScript implementation
-- **Navigation**: Synchronized keyboard and mouse navigation with URL state
-- **Selection Management**: Smart selection handling to prevent conflicts
+This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).
 
-## 🤝 Contributing
-Contributions are welcome! Whether it's a bug fix, feature enhancement, or documentation improvement, feel free to make a pull request.
+### What this means:
+- ✅ You can freely use, modify, and distribute this software for non-commercial purposes
+- ✅ You must give appropriate credit and indicate if changes were made
+- ❌ You cannot use this software for commercial purposes without permission
+- ℹ️ The original author retains all rights for commercial use
 
-## 📝 License
-MIT License - feel free to use this project however you'd like!
+For more information, see the [full license text](https://creativecommons.org/licenses/by-nc/4.0/).
 
 ---
 <p align="center">Made with ❤️ for RSS enthusiasts and AI explorers</p>
