@@ -312,23 +312,45 @@ export async function getUnreadEntries(feedId?: number) {
   return await query.reverse().sortBy('publishDate');
 }
 
+// Add feed title cache
+const feedTitleCache = new Map<number, string>();
+
+// Add this function to batch load feed titles
+async function batchLoadFeedTitles(feedIds: number[]) {
+  const uniqueIds = [...new Set(feedIds)];
+  const uncachedIds = uniqueIds.filter(id => !feedTitleCache.has(id));
+  
+  if (uncachedIds.length > 0) {
+    const feeds = await db.feeds.where('id').anyOf(uncachedIds).toArray();
+    feeds.forEach(feed => {
+      feedTitleCache.set(feed.id!, feed.isDeleted ? `${feed.title} (Deleted)` : feed.title);
+    });
+  }
+}
+
+// Modify getFeedTitle to use cache
+export async function getFeedTitle(feedId: number): Promise<string> {
+  if (feedTitleCache.has(feedId)) {
+    return feedTitleCache.get(feedId)!;
+  }
+  
+  const feed = await db.feeds.get(feedId);
+  const title = feed ? (feed.isDeleted ? `${feed.title} (Deleted)` : feed.title) : 'Unknown Feed';
+  feedTitleCache.set(feedId, title);
+  return title;
+}
+
+// Modify addFeedTitleToEntries to use batch loading
 async function addFeedTitleToEntries(entries: FeedEntry[]): Promise<FeedEntryWithTitle[]> {
   const feedIds = [...new Set(entries
     .map(entry => entry.feedId)
     .filter((id): id is number => id != null))];
   
-  const feeds = feedIds.length > 0 
-    ? await db.feeds.where('id').anyOf(feedIds).toArray()
-    : [];
-    
-  const feedMap = new Map(feeds.map(feed => [
-    feed.id, 
-    feed.isDeleted ? `${feed.title} (Deleted)` : feed.title
-  ]));
+  await batchLoadFeedTitles(feedIds);
   
   return entries.map(entry => ({
     ...entry,
-    feedTitle: entry.feedId ? feedMap.get(entry.feedId) || 'Unknown Feed' : 'Unknown Feed',
+    feedTitle: entry.feedId ? feedTitleCache.get(entry.feedId) || 'Unknown Feed' : 'Unknown Feed',
     publishDate: new Date(entry.publishDate),
     readDate: entry.readDate ? new Date(entry.readDate) : undefined,
     starredDate: entry.starredDate ? new Date(entry.starredDate) : undefined,
@@ -337,21 +359,58 @@ async function addFeedTitleToEntries(entries: FeedEntry[]): Promise<FeedEntryWit
   }));
 }
 
-export async function getFeedEntries(feedId: number) {
-  const entries = await db.entries
-    .where('feedId')
-    .equals(feedId)
-    .reverse()
-    .sortBy('publishDate');
-  return addFeedTitleToEntries(entries);
+// Modify getFeedEntries to use pagination and caching
+export async function getFeedEntries(feedId: number, page: number = 1, pageSize: number = 20) {
+  const offset = (page - 1) * pageSize;
+  
+  const [entries, total] = await Promise.all([
+    db.entries
+      .where('feedId')
+      .equals(feedId)
+      .reverse()
+      .offset(offset)
+      .limit(pageSize)
+      .sortBy('publishDate'),
+    db.entries
+      .where('feedId')
+      .equals(feedId)
+      .count()
+  ]);
+
+  const entriesWithTitles = await addFeedTitleToEntries(entries);
+  
+  return {
+    entries: entriesWithTitles,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize)
+  };
 }
 
-export async function getAllEntries() {
-  const entries = await db.entries
-    .orderBy('publishDate')
-    .reverse()
-    .toArray();
-  return addFeedTitleToEntries(entries);
+// Modify getAllEntries to use pagination
+export async function getAllEntries(page: number = 1, pageSize: number = 20) {
+  const offset = (page - 1) * pageSize;
+  
+  const [entries, total] = await Promise.all([
+    db.entries
+      .orderBy('publishDate')
+      .reverse()
+      .offset(offset)
+      .limit(pageSize)
+      .toArray(),
+    db.entries.count()
+  ]);
+
+  const entriesWithTitles = await addFeedTitleToEntries(entries);
+  
+  return {
+    entries: entriesWithTitles,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.ceil(total / pageSize)
+  };
 }
 
 export async function getStarredEntries() {
@@ -650,25 +709,27 @@ export async function updateSearchResultCounts() {
   const searches = await db.savedSearches.toArray();
   const now = new Date();
   
-  // Update each search's result count and timestamp
-  const updates = searches.map(async (search) => {
-    const results = await searchEntries(search.query);
-    let mostRecentTimestamp: Date | null = null;
-    if (results.length > 0) {
-      mostRecentTimestamp = results.reduce((latest, entry) => {
-        const entryDate = entry.publishDate;
-        return entryDate > latest ? entryDate : latest;
-      }, results[0].publishDate);
-    }
+  // Process searches in batches
+  const batchSize = 5;
+  for (let i = 0; i < searches.length; i += batchSize) {
+    const batch = searches.slice(i, i + batchSize);
+    await Promise.all(batch.map(async (search) => {
+      const results = await searchEntries(search.query);
+      let mostRecentTimestamp: Date | null = null;
+      if (results.length > 0) {
+        mostRecentTimestamp = results.reduce((latest, entry) => {
+          const entryDate = entry.publishDate;
+          return entryDate > latest ? entryDate : latest;
+        }, results[0].publishDate);
+      }
 
-    return db.savedSearches.update(search.id!, {
-      resultCount: results.length,
-      lastUpdated: now,
-      mostRecentResult: mostRecentTimestamp
-    });
-  });
-  
-  await Promise.all(updates);
+      return db.savedSearches.update(search.id!, {
+        resultCount: results.length,
+        lastUpdated: now,
+        mostRecentResult: mostRecentTimestamp
+      });
+    }));
+  }
 }
 
 export async function updateFeedOrder(updates: { feedId: number; folderId: number | null; order: number }[]) {
@@ -785,8 +846,7 @@ export async function updateFolderName(folderId: string, newName: string) {
 
 export type { Feed, FeedEntry, FeedEntryWithTitle, Folder, SavedSearch, ChatMessage }; 
 
-export async function getFeedTitle(feedId: number): Promise<string> {
-  const feed = await db.feeds.get(feedId);
-  if (!feed) return 'Unknown Feed';
-  return feed.isDeleted ? `${feed.title} (Deleted)` : feed.title;
+// Add function to clear feed title cache when needed
+export function clearFeedTitleCache() {
+  feedTitleCache.clear();
 }

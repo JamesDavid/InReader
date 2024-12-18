@@ -17,7 +17,7 @@ import {
   type Folder, 
   type SavedSearch 
 } from '../services/db';
-import { refreshFeed } from '../services/feedParser';
+import { refreshFeed, refreshFeeds } from '../services/feedParser';
 import AddFeedModal from './AddFeedModal';
 import ttsService from '../services/ttsService';
 import SidebarMainItem from './sidebar/SidebarMainItem';
@@ -81,6 +81,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [draggedItem, setDraggedItem] = useState<NavigationItem | null>(null);
   const [isAddFeedModalOpen, setIsAddFeedModalOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRefreshingAll, setIsRefreshingAll] = useState(false);
   const [refreshingFeeds, setRefreshingFeeds] = useState<Set<number>>(new Set());
   const [isSearchesCollapsed, setIsSearchesCollapsed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -224,30 +225,9 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   }, []);
 
-  // Load feeds and folders on mount and when modals close
+  // Load feeds and folders on mount
   useEffect(() => {
-    const initialLoad = async () => {
-      try {
-        setIsLoading(true);
-        const [feedsData, foldersData] = await Promise.all([
-          getAllFeeds(),
-          getFolders()
-        ]);
-
-        // Sort feeds by order field
-        const sortedFeeds = feedsData.sort((a, b) => (a.order || 0) - (b.order || 0));
-        setFeeds(sortedFeeds);
-        setFolders(foldersData);
-        setIsLoading(false);
-      } catch (error) {
-        console.error('Error loading data:', error);
-        setFeeds([]);
-        setFolders([]);
-        setIsLoading(false);
-      }
-    };
-
-    initialLoad();
+    loadData();
   }, []); // Empty dependency array since this is only for initial load
 
   const handleDeleteFeed = async (id: number) => {
@@ -255,88 +235,41 @@ const Sidebar: React.FC<SidebarProps> = ({
     loadData();
   };
 
-  const handleRefreshCurrentFeed = useCallback(async () => {
-    // Check if current selection is a feed
-    const currentItem = visibleItems[selectedIndex];
-    const feedItem = feedItems.find(item => item.path === currentItem.path);
-    if (feedItem && feedItem.id) {
-      try {
-        const feed = feeds.find(f => f.id === feedItem.id);
-        if (feed) {
-          console.log('Refreshing feed:', feed.title);
-          setRefreshingFeeds(prev => new Set(prev).add(feedItem.id!));
-          await refreshFeed(feed);
-          await loadData();
-          // Update search result counts after refreshing the feed
-          await updateSearchResultCounts();
-          setRefreshingFeeds(prev => {
-            const next = new Set(prev);
-            next.delete(feedItem.id!);
-            return next;
-          });
-        }
-      } catch (error) {
-        console.error('Error refreshing feed:', error);
-        setRefreshingFeeds(prev => {
-          const next = new Set(prev);
-          next.delete(feedItem.id!);
-          return next;
-        });
-      }
-    }
-  }, [visibleItems, selectedIndex, feedItems, feeds, loadData]);
-
-  const handleRefreshFeeds = useCallback(async () => {
-    if (isRefreshing) return;
-    setIsRefreshing(true);
+  const handleRefreshAllFeeds = useCallback(async () => {
+    if (isRefreshingAll) return;
+    setIsRefreshingAll(true);
     try {
-      // Add all feed IDs to refreshing set
-      const feedIds = feeds.map(feed => feed.id!);
+      const allFeeds = await getAllFeeds();
+      
+      // Set all feeds as refreshing
+      const feedIds = allFeeds.map(feed => feed.id!);
       setRefreshingFeeds(new Set(feedIds));
 
-      // Refresh feeds concurrently but track individual completion
-      await Promise.all(feeds.map(async feed => {
-        try {
-          await refreshFeed(feed);
-          // Remove this feed from refreshing set when it completes
-          setRefreshingFeeds(prev => {
-            const next = new Set(prev);
-            next.delete(feed.id!);
-            return next;
-          });
-        } catch (error) {
-          console.error(`Error refreshing feed ${feed.title}:`, error);
-          // Still remove from refreshing set even if it fails
-          setRefreshingFeeds(prev => {
-            const next = new Set(prev);
-            next.delete(feed.id!);
-            return next;
-          });
-        }
-      }));
+      // Use parallel refresh for all feeds
+      const results = await refreshFeeds(allFeeds);
       
-      // Wait a short moment for entries to be processed
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Update UI
+      await loadData();
       
-      // Update feeds data and search results
-      await Promise.all([
-        loadData(),
-        updateSearchResultCounts()
-      ]);
-
+      // Update search counts
+      await updateSearchResultCounts();
+      
+      // Notify components that all feeds have been refreshed
+      window.dispatchEvent(new CustomEvent('allFeedsRefreshed'));
     } catch (error) {
-      console.error('Error refreshing feeds:', error);
+      console.error('Error refreshing all feeds:', error);
     } finally {
-      setIsRefreshing(false);
+      setIsRefreshingAll(false);
+      setRefreshingFeeds(new Set());
     }
-  }, [feeds, isRefreshing, loadData]);
+  }, [isRefreshingAll, loadData]);
 
-  // Register the refresh callback with Layout
+  // Register the refresh callback with Layout using the new function
   useEffect(() => {
     if (onRegisterRefreshFeeds) {
-      onRegisterRefreshFeeds(handleRefreshFeeds);
+      onRegisterRefreshFeeds(handleRefreshAllFeeds);
     }
-  }, [onRegisterRefreshFeeds, handleRefreshFeeds]);
+  }, [onRegisterRefreshFeeds, handleRefreshAllFeeds]);
 
   // Keep initial route sync effect
   useEffect(() => {
@@ -432,7 +365,10 @@ const Sidebar: React.FC<SidebarProps> = ({
       
       const validUpdates = updates.filter(update => 
         activeFeedIds.has(update.feedId)
-      );
+      ).map(update => ({
+        ...update,
+        folderId: update.folderId ? parseInt(update.folderId) : null
+      }));
       
       await updateFeedOrder(validUpdates);
       await loadData();
@@ -482,6 +418,41 @@ const Sidebar: React.FC<SidebarProps> = ({
       console.error('Error renaming folder:', error);
     }
   };
+
+  const handleRefreshFeeds = useCallback(async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+
+    try {
+      const feeds = await getAllFeeds();
+      for (const feed of feeds) {
+        if (feed.isDeleted) continue;
+        
+        // Dispatch event to start refresh for this feed
+        window.dispatchEvent(new CustomEvent('feedRefreshStart', {
+          detail: { feedId: feed.id }
+        }));
+
+        try {
+          await refreshFeed(feed.id);
+          // Dispatch success event
+          window.dispatchEvent(new CustomEvent('feedRefreshComplete', {
+            detail: { feedId: feed.id, success: true }
+          }));
+        } catch (error) {
+          console.error(`Error refreshing feed ${feed.id}:`, error);
+          // Dispatch error event
+          window.dispatchEvent(new CustomEvent('feedRefreshComplete', {
+            detail: { feedId: feed.id, success: false, error }
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing feeds:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [isRefreshing]);
 
   return (
     <div 
@@ -580,12 +551,12 @@ const Sidebar: React.FC<SidebarProps> = ({
             },
             {
               icon: (
-                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${isRefreshingAll ? 'animate-spin' : ''}`} viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
                 </svg>
               ),
-              onClick: handleRefreshFeeds,
-              disabled: isRefreshing,
+              onClick: handleRefreshAllFeeds,
+              disabled: isRefreshingAll,
               title: "Refresh all feeds"
             }
           ]}
@@ -605,7 +576,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                 title: feed.title,
                 path: `/feed/${feed.id}`,
                 unreadCount: feed.unreadCount,
-                isRefreshing: refreshingFeeds.has(feed.id!)
+                isRefreshing: refreshingFeeds.has(feed.id!),
+                isDeleted: feed.isDeleted || false
               }))}
               isDarkMode={isDarkMode}
               isLoading={isLoading}
@@ -650,6 +622,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onSelect={onSelectedIndexChange}
                 onFocusChange={onFocusChange}
                 onDelete={() => handleDeleteFeed(feed.id!)}
+                isDeleted={feed.isDeleted || false}
               />
             );
           })}

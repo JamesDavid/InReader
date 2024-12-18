@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { type FeedEntryWithTitle, type ChatMessage, subscribeToEntryUpdates, db, getFeedTitle } from '../services/db';
@@ -46,6 +46,32 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   const articleRef = useRef<HTMLElement>(null);
   const contentElementRef = useRef<HTMLDivElement | null>(null);
   const [feedTitle, setFeedTitle] = useState(entry.feedTitle);
+
+  const getContentLength = (content: string): number => {
+    const div = document.createElement('div');
+    div.innerHTML = content;
+    return (div.textContent || div.innerText || '').length;
+  };
+
+  const formatDate = (date: Date) => {
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor(diff / (1000 * 60));
+
+    if (days > 7) {
+      return date.toLocaleDateString();
+    } else if (days > 0) {
+      return `${days}d ago`;
+    } else if (hours > 0) {
+      return `${hours}h ago`;
+    } else if (minutes > 0) {
+      return `${minutes}m ago`;
+    } else {
+      return 'just now';
+    }
+  };
 
   useEffect(() => {
     setCurrentEntry(entry);
@@ -127,8 +153,53 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     }
   }, [isSelected]);
 
-  const handleRefresh = async (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent article selection when clicking refresh
+  // Combine all entry update handlers into a single effect
+  useEffect(() => {
+    const handlers = {
+      readChange: (event: CustomEvent<{ entryId: number; isRead: boolean }>) => {
+        if (event.detail.entryId === currentEntry.id) {
+          setCurrentEntry(prev => ({...prev, isRead: event.detail.isRead}));
+        }
+      },
+
+      entryUpdate: (event: CustomEvent<{ entry: FeedEntryWithTitle }>) => {
+        if (event.detail.entry.id === currentEntry.id) {
+          setCurrentEntry(event.detail.entry);
+        }
+      },
+
+      refreshStart: (event: CustomEvent<{ entryId: number }>) => {
+        if (event.detail.entryId === currentEntry.id) {
+          setIsRefreshing(true);
+        }
+      },
+
+      refreshComplete: (event: CustomEvent<{ entry: FeedEntryWithTitle }>) => {
+        if (event.detail.entry.id === currentEntry.id) {
+          setCurrentEntry(event.detail.entry);
+          setIsRefreshing(false);
+        }
+      }
+    };
+
+    // Add all event listeners
+    window.addEventListener('entryReadChanged', handlers.readChange as EventListener);
+    window.addEventListener('entryUpdated', handlers.entryUpdate as EventListener);
+    window.addEventListener('entryRefreshStart', handlers.refreshStart as EventListener);
+    window.addEventListener('entryRefreshComplete', handlers.refreshComplete as EventListener);
+
+    // Remove all event listeners on cleanup
+    return () => {
+      window.removeEventListener('entryReadChanged', handlers.readChange as EventListener);
+      window.removeEventListener('entryUpdated', handlers.entryUpdate as EventListener);
+      window.removeEventListener('entryRefreshStart', handlers.refreshStart as EventListener);
+      window.removeEventListener('entryRefreshComplete', handlers.refreshComplete as EventListener);
+    };
+  }, [currentEntry.id]);
+
+  // Memoize handlers that don't need to change often
+  const handleRefresh = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!currentEntry.id || isRefreshing) return;
     
     setIsRefreshing(true);
@@ -139,33 +210,34 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [currentEntry.id, isRefreshing]);
 
-  const getContentLength = (content: string): number => {
-    const div = document.createElement('div');
-    div.innerHTML = content;
-    return (div.textContent || div.innerText || '').length;
-  };
+  const handleCopy = useCallback(async () => {
+    const content = formatForSharing(currentEntry);
+    await navigator.clipboard.writeText(content);
+  }, [currentEntry]);
 
-  const formatDate = (date: Date) => {
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const minutes = Math.floor(diff / (1000 * 60));
+  // Memoize content length calculation
+  const contentLength = useMemo(() => {
+    const content = currentEntry.content_fullArticle || currentEntry.content_rssAbstract;
+    return getContentLength(content);
+  }, [currentEntry.content_fullArticle, currentEntry.content_rssAbstract]);
 
-    if (days > 7) {
-      return date.toLocaleDateString();
-    } else if (days > 0) {
-      return `${days}d ago`;
-    } else if (hours > 0) {
-      return `${hours}h ago`;
-    } else if (minutes > 0) {
-      return `${minutes}m ago`;
-    } else {
-      return 'just now';
-    }
-  };
+  // Memoize formatted date
+  const formattedDate = useMemo(() => {
+    return formatDate(new Date(currentEntry.publishDate));
+  }, [currentEntry.publishDate]);
+
+  // Memoize markdown class
+  const computedMarkdownClass = useMemo(() => {
+    return `prose prose-sm max-w-none 
+      ${isDarkMode ? 'prose-invert prose-p:text-gray-300' : 'prose-p:text-gray-600'}
+      prose-p:my-0 prose-headings:my-1 prose-ul:my-1 prose-ol:my-1
+      prose-pre:bg-gray-800 prose-pre:text-gray-100
+      prose-code:text-blue-500 prose-code:bg-gray-100 prose-code:rounded prose-code:px-1
+      prose-a:text-blue-500 hover:prose-a:text-blue-600
+      ${isDarkMode ? 'prose-code:bg-gray-700' : ''}`;
+  }, [isDarkMode]);
 
   const hasChatHistory = (entry: FeedEntryWithTitle) => {
     if (!entry.chatHistory || entry.chatHistory.length === 0) return false;
@@ -200,14 +272,6 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     return content.slice(0, content.indexOf(result) + result.length) + '...';
   };
 
-  const markdownClass = `prose prose-sm max-w-none 
-    ${isDarkMode ? 'prose-invert prose-p:text-gray-300' : 'prose-p:text-gray-600'}
-    prose-p:my-0 prose-headings:my-1 prose-ul:my-1 prose-ol:my-1
-    prose-pre:bg-gray-800 prose-pre:text-gray-100
-    prose-code:text-blue-500 prose-code:bg-gray-100 prose-code:rounded prose-code:px-1
-    prose-a:text-blue-500 hover:prose-a:text-blue-600
-    ${isDarkMode ? 'prose-code:bg-gray-700' : ''}`;
-
   const formatDateForCopy = (date: Date): string => {
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
@@ -237,65 +301,6 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
 
     return parts.filter(Boolean).join('\n');
   };
-
-  const handleCopy = async () => {
-    const content = formatForSharing(currentEntry);
-    await navigator.clipboard.writeText(content);
-  };
-
-  useEffect(() => {
-    const handleReadChange = (event: CustomEvent<{
-      entryId: number;
-      isRead: boolean;
-    }>) => {
-      if (event.detail.entryId === currentEntry.id) {
-        setCurrentEntry(prev => ({
-          ...prev,
-          isRead: event.detail.isRead
-        }));
-      }
-    };
-
-    window.addEventListener('entryReadChanged', handleReadChange as EventListener);
-    return () => {
-      window.removeEventListener('entryReadChanged', handleReadChange as EventListener);
-    };
-  }, [currentEntry.id]);
-
-  useEffect(() => {
-    const handleEntryUpdate = (event: CustomEvent<{ entry: FeedEntryWithTitle }>) => {
-      if (event.detail.entry.id === currentEntry.id) {
-        setCurrentEntry(event.detail.entry);
-      }
-    };
-
-    window.addEventListener('entryUpdated', handleEntryUpdate as EventListener);
-    return () => {
-      window.removeEventListener('entryUpdated', handleEntryUpdate as EventListener);
-    };
-  }, [currentEntry.id]);
-
-  useEffect(() => {
-    const handleRefreshStart = (event: CustomEvent<{ entryId: number }>) => {
-      if (event.detail.entryId === currentEntry.id) {
-        setIsRefreshing(true);
-      }
-    };
-
-    const handleRefreshComplete = (event: CustomEvent<{ entry: FeedEntryWithTitle }>) => {
-      if (event.detail.entry.id === currentEntry.id) {
-        setCurrentEntry(event.detail.entry);
-        setIsRefreshing(false);
-      }
-    };
-
-    window.addEventListener('entryRefreshStart', handleRefreshStart as EventListener);
-    window.addEventListener('entryRefreshComplete', handleRefreshComplete as EventListener);
-    return () => {
-      window.removeEventListener('entryRefreshStart', handleRefreshStart as EventListener);
-      window.removeEventListener('entryRefreshComplete', handleRefreshComplete as EventListener);
-    };
-  }, [currentEntry.id]);
 
   // Modify the isContentFullyVisible function
   const isContentFullyVisible = () => {
@@ -470,6 +475,33 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
               </svg>
             </div>
           )}
+          {currentEntry.content_aiSummary && (
+            <div 
+              className={`px-1.5 py-0.5 rounded text-xs font-medium
+                ${isDarkMode 
+                  ? 'bg-yellow-500/20 text-yellow-200' 
+                  : 'bg-yellow-100 text-yellow-800'}`}
+              title="AI Summary available"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+              </svg>
+            </div>
+          )}
+          {currentEntry.requestProcessingStatus === 'pending' && (
+            <div 
+              className={`px-1.5 py-0.5 rounded text-xs font-medium flex items-center gap-1
+                ${isDarkMode 
+                  ? 'bg-blue-500/20 text-blue-200' 
+                  : 'bg-blue-100 text-blue-800'}`}
+              title="Processing article content"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span>Processing</span>
+            </div>
+          )}
         </div>
 
         <div className="flex-grow min-w-0">
@@ -516,7 +548,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
               </svg>
             </button>
           )}
-          <span>{formatDate(new Date(currentEntry.publishDate))}</span>
+          <span>{formattedDate}</span>
         </div>
       </div>
 
@@ -551,20 +583,20 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                   </>
                 )}
               </div>
-              <div className={markdownClass}>
+              <div className={computedMarkdownClass}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {currentEntry.content_aiSummary}
                 </ReactMarkdown>
               </div>
             </div>
           )}
-          <div className={markdownClass}>
+          <div className={computedMarkdownClass}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {getPreviewContent(currentEntry.content_fullArticle || currentEntry.content_rssAbstract, isExpanded)}
             </ReactMarkdown>
           </div>
           <div className="flex justify-between items-center mt-4">
-            {getContentLength(currentEntry.content_fullArticle || currentEntry.content_rssAbstract) > 600 && (
+            {contentLength > 600 && (
               <button
                 onClick={() => onToggleExpand(currentEntry.id!)}
                 className={`text-sm ${
@@ -576,20 +608,54 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                 {isExpanded ? 'Show less' : 'Show more'}
               </button>
             )}
-            <button
-              onClick={handleCopy}
-              className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm ml-auto
-                ${isDarkMode 
-                  ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
-                  : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}
-              title="Copy article content"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
-                <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
-              </svg>
-              <span>Copy</span>
-            </button>
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation(); // Prevent selection change
+                  const content = entry.content_fullArticle || entry.content_rssAbstract;
+                  if (content && entry.id && isSelected) { // Use entry instead of currentEntry
+                    console.log('Adding to TTS queue:', {
+                      id: entry.id,
+                      title: entry.title,
+                      isSelected
+                    });
+                    ttsService.addToQueue({
+                      id: entry.id,
+                      title: entry.title,
+                      source: entry.feedTitle,
+                      summary: entry.content_aiSummary,
+                      content: content
+                    });
+                  }
+                }}
+                disabled={!isSelected} // Disable if not selected
+                className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
+                  ${isDarkMode 
+                    ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                    : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}
+                  ${!isSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title={isSelected ? "Add to TTS queue" : "Select entry to add to TTS queue"}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.415z" clipRule="evenodd"/>
+                </svg>
+                <span>Listen</span>
+              </button>
+              <button
+                onClick={handleCopy}
+                className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
+                  ${isDarkMode 
+                    ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                    : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}
+                title="Copy article content"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                  <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                </svg>
+                <span>Copy</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

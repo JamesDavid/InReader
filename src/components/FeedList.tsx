@@ -6,6 +6,7 @@ import ttsService from '../services/ttsService';
 import FeedListEntry from './FeedListEntry';
 import { PaginationService, type PaginationState } from '../services/paginationService';
 import { refreshFeed } from '../services/feedParser';
+import { Pagination } from './Pagination';
 
 interface ContextType {
   isFocused: boolean;
@@ -26,6 +27,8 @@ interface FeedListProps {
   entries?: FeedEntryWithTitle[];
   onEntriesUpdate?: (entries: FeedEntryWithTitle[]) => void;
 }
+
+const ITEMS_PER_PAGE = 20;
 
 const FeedList: React.FC<FeedListProps> = (props) => {
   const context = useOutletContext<ContextType>();
@@ -56,7 +59,8 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     itemsPerPage: 20,
     totalPages: 0
   });
-  const paginationService = new PaginationService<FeedEntryWithTitle>(20);
+  const [isLoadingPage, setIsLoadingPage] = useState(false);
+  const [targetPage, setTargetPage] = useState(1);
 
   // Filter entries based on showUnreadOnly
   const filteredEntries = useMemo(() => {
@@ -65,20 +69,83 @@ const FeedList: React.FC<FeedListProps> = (props) => {
 
   // Update pagination state when page or entries change
   useEffect(() => {
-    paginationService.setItems(filteredEntries);
-    const newState = paginationService.getState(currentPage);
-    setPaginatedState(newState);
+    if (!isLoadingPage) return; // Only load if we're in loading state
 
-    // Update selected entry ID when entries change
-    if (newState.items.length > 0 && selectedIndex < newState.items.length) {
-      const currentEntry = newState.items[selectedIndex];
-      if (currentEntry?.id !== context.selectedEntryId) {
-        context.onSelectedEntryIdChange(currentEntry?.id || null);
+    console.log('Loading page entries:', {
+      totalItems: paginatedState.totalItems,
+      entriesLength: entries.length,
+      filteredEntriesLength: filteredEntries.length,
+      currentPage,
+      showUnreadOnly
+    });
+
+    // Load new page of entries if needed
+    const loadPageEntries = async () => {
+      try {
+        if (!props.entries && !folderId && !location.pathname.startsWith('/starred') && !location.pathname.startsWith('/listened')) {
+          let result;
+          if (feedId) {
+            result = await getFeedEntries(parseInt(feedId), currentPage, ITEMS_PER_PAGE);
+          } else {
+            result = await getAllEntries(currentPage, ITEMS_PER_PAGE);
+          }
+          
+          console.log('Loaded new page:', {
+            currentPage,
+            loadedCount: result.entries.length,
+            totalItems: result.total
+          });
+
+          setEntries(result.entries);
+          setPaginatedState(prev => ({
+            items: showUnreadOnly ? result.entries.filter(entry => !entry.isRead) : result.entries,
+            currentPage,
+            totalItems: result.total,
+            itemsPerPage: ITEMS_PER_PAGE,
+            totalPages: Math.ceil(result.total / ITEMS_PER_PAGE)
+          }));
+        } else {
+          // For other cases (starred, listened, folder), handle pagination locally
+          const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+          const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, filteredEntries.length);
+          const pageItems = filteredEntries.slice(startIndex, endIndex);
+
+          setPaginatedState(prev => ({
+            items: pageItems,
+            currentPage,
+            totalItems: prev.totalItems,
+            itemsPerPage: ITEMS_PER_PAGE,
+            totalPages: prev.totalPages
+          }));
+        }
+      } catch (error) {
+        console.error('Error loading page entries:', error);
+      } finally {
+        setIsLoadingPage(false);
       }
-    } else if (newState.items.length === 0) {
-      context.onSelectedEntryIdChange(null);
+    };
+
+    loadPageEntries();
+  }, [currentPage, isLoadingPage]); // Only depend on currentPage and isLoadingPage
+
+  // Add a separate effect to handle filtered entries updates
+  useEffect(() => {
+    if (isLoadingPage) return; // Don't update while loading
+
+    if (props.entries || folderId || location.pathname.startsWith('/starred') || location.pathname.startsWith('/listened')) {
+      const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+      const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, filteredEntries.length);
+      const pageItems = filteredEntries.slice(startIndex, endIndex);
+
+      setPaginatedState(prev => ({
+        items: pageItems,
+        currentPage,
+        totalItems: filteredEntries.length,
+        itemsPerPage: ITEMS_PER_PAGE,
+        totalPages: Math.ceil(filteredEntries.length / ITEMS_PER_PAGE)
+      }));
     }
-  }, [currentPage, filteredEntries, selectedIndex, context.selectedEntryId]);
+  }, [filteredEntries, showUnreadOnly, props.entries, folderId, location.pathname, currentPage]);
 
   // Ensure selection is within bounds
   useEffect(() => {
@@ -117,12 +184,12 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     const loadedEntries = props.entries 
       ? props.entries 
       : feedId 
-        ? await getFeedEntries(parseInt(feedId))
+        ? (await getFeedEntries(parseInt(feedId))).entries
         : location.pathname === '/starred'
           ? await getStarredEntries()
           : location.pathname === '/listened'
             ? await getListenedEntries()
-            : await getAllEntries();
+            : (await getAllEntries()).entries;
     setEntries(loadedEntries);
   }, [feedId, location.pathname, props.entries]);
 
@@ -184,15 +251,17 @@ const FeedList: React.FC<FeedListProps> = (props) => {
         const feed = await db.feeds.get(parseInt(feedId));
         if (feed) {
           await refreshFeed(feed);
-          const loadedEntries = await getFeedEntries(parseInt(feedId));
+          const loadedEntries = (await getFeedEntries(parseInt(feedId))).entries;
           setEntries(loadedEntries);
         }
       } else if (folderId) {
         const folderFeeds = await getFeedsByFolder(parseInt(folderId));
-        await Promise.all(folderFeeds.map(feed => refreshFeed(feed)));
+        // Use parallel refresh for folder feeds
+        await refreshFeeds(folderFeeds);
         const entriesPromises = folderFeeds.map(feed => getFeedEntries(feed.id!));
         const feedEntries = await Promise.all(entriesPromises);
         const loadedEntries = feedEntries
+          .map(result => result.entries)
           .flat()
           .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
         setEntries(loadedEntries);
@@ -207,9 +276,11 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     const loadEntries = async () => {
       try {
         let loadedEntries: FeedEntryWithTitle[];
+        let totalEntriesCount = 0;
         
         if (props.entries) {
           loadedEntries = props.entries;
+          totalEntriesCount = props.entries.length;
         } else if (folderId) {
           // Get all feeds in the folder
           const folderFeeds = await getFeedsByFolder(parseInt(folderId));
@@ -218,6 +289,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
           const feedEntries = await Promise.all(entriesPromises);
           // Flatten and ensure dates are properly converted
           loadedEntries = feedEntries
+            .map(result => result.entries)
             .flat()
             .map(entry => ({
               ...entry,
@@ -228,12 +300,24 @@ const FeedList: React.FC<FeedListProps> = (props) => {
               lastChatDate: entry.lastChatDate ? new Date(entry.lastChatDate) : undefined
             }))
             .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
+          totalEntriesCount = loadedEntries.length;
         } else if (feedId) {
-          loadedEntries = await getFeedEntries(parseInt(feedId));
+          const result = await getFeedEntries(parseInt(feedId), currentPage, ITEMS_PER_PAGE);
+          loadedEntries = result.entries;
+          totalEntriesCount = result.total;
+          console.log('Feed entries loaded:', {
+            feedId,
+            totalEntriesCount: result.total,
+            loadedCount: result.entries.length,
+            currentPage,
+            totalPages: result.totalPages
+          });
         } else if (location.pathname === '/starred') {
           loadedEntries = await getStarredEntries();
+          totalEntriesCount = loadedEntries.length;
         } else if (location.pathname === '/listened') {
           loadedEntries = await getListenedEntries();
+          totalEntriesCount = loadedEntries.length;
           // Sort by listenedDate in descending order
           loadedEntries.sort((a, b) => {
             const dateA = a.listenedDate?.getTime() || 0;
@@ -241,18 +325,52 @@ const FeedList: React.FC<FeedListProps> = (props) => {
             return dateB - dateA;
           });
         } else {
-          loadedEntries = await getAllEntries();
+          const result = await getAllEntries(currentPage, ITEMS_PER_PAGE);
+          loadedEntries = result.entries;
+          totalEntriesCount = result.total;
+          console.log('All entries loaded:', {
+            totalEntriesCount: result.total,
+            loadedCount: result.entries.length,
+            currentPage,
+            totalPages: result.totalPages
+          });
         }
         
         setEntries(loadedEntries);
+        
+        // Initialize pagination state immediately
+        const totalPages = Math.max(1, Math.ceil(totalEntriesCount / ITEMS_PER_PAGE));
+        
+        console.log('Initializing pagination state:', {
+          totalEntriesCount,
+          totalPages,
+          currentPage,
+          ITEMS_PER_PAGE,
+          shouldShowPagination: totalEntriesCount > ITEMS_PER_PAGE
+        });
+        
+        setPaginatedState({
+          items: loadedEntries,
+          currentPage,
+          totalItems: totalEntriesCount,
+          itemsPerPage: ITEMS_PER_PAGE,
+          totalPages
+        });
       } catch (error) {
         console.error('Error loading entries:', error);
         setEntries([]);
+        setPaginatedState({
+          items: [],
+          currentPage: 1,
+          totalItems: 0,
+          itemsPerPage: ITEMS_PER_PAGE,
+          totalPages: 0
+        });
       }
     };
 
     loadEntries();
-  }, [feedId, folderId, location.pathname, props.entries]);
+  }, [feedId, folderId, location.pathname, props.entries, currentPage]);
 
   const toggleExpanded = useCallback((entryId: number) => {
     // Don't toggle if content is short
@@ -289,51 +407,24 @@ const FeedList: React.FC<FeedListProps> = (props) => {
 
   // Add handler for page changes
   const handlePageChange = useCallback((page: number) => {
-    const isMovingForward = page > currentPage;
+    console.log('Changing to page:', page);
+    if (page === currentPage) return; // Don't reload if we're already on this page
+    
+    setTargetPage(page);
     setCurrentPage(page);
+    setIsLoadingPage(true);
+    
+    // Reset selection when changing pages
+    onSelectedIndexChange(0);
     
     // Scroll to top for next page, bottom for previous page
     if (listRef.current) {
       listRef.current.scrollTo({
-        top: isMovingForward ? 0 : listRef.current.scrollHeight,
+        top: page > currentPage ? 0 : listRef.current.scrollHeight,
         behavior: 'instant'
       });
     }
-  }, [currentPage]);
-
-  // Footer component for pagination
-  const PaginationFooter = () => {
-    if (paginatedState.totalPages <= 1) return null;
-
-    return (
-      <div className={`sticky bottom-0 w-full py-2 px-4 ${isDarkMode ? 'bg-gray-800/90 text-gray-300' : 'bg-white/90 text-gray-600'} backdrop-blur-sm border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => handlePageChange(currentPage - 1)}
-              disabled={currentPage === 1}
-              className={`px-2 py-1 rounded ${currentPage === 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-            >
-              ←
-            </button>
-            <span>
-              Page {currentPage} of {paginatedState.totalPages}
-            </span>
-            <button
-              onClick={() => handlePageChange(currentPage + 1)}
-              disabled={currentPage === paginatedState.totalPages}
-              className={`px-2 py-1 rounded ${currentPage === paginatedState.totalPages ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
-            >
-              →
-            </button>
-          </div>
-          <div className="text-xs opacity-75">
-            {paginatedState.totalItems} items
-          </div>
-        </div>
-      </div>
-    );
-  };
+  }, [currentPage, onSelectedIndexChange]);
 
   // Replace the database hook effect with this updated version
   useEffect(() => {
@@ -376,12 +467,12 @@ const FeedList: React.FC<FeedListProps> = (props) => {
               const loadedEntries = props.entries 
                 ? props.entries 
                 : feedId 
-                  ? await getFeedEntries(parseInt(feedId))
+                  ? (await getFeedEntries(parseInt(feedId))).entries
                   : location.pathname === '/starred'
                     ? await getStarredEntries()
                     : location.pathname === '/listened'
                       ? await getListenedEntries()
-                      : await getAllEntries();
+                      : (await getAllEntries()).entries;
               setEntries(loadedEntries);
             };
             loadEntries();
@@ -459,14 +550,14 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       // Only reload if we're viewing the refreshed feed
       const currentFeedId = feedId ? parseInt(feedId) : null;
       if (currentFeedId === event.detail.feedId) {
-        const loadedEntries = await getFeedEntries(event.detail.feedId);
+        const loadedEntries = (await getFeedEntries(event.detail.feedId)).entries;
         setEntries(loadedEntries);
       }
     };
 
-    window.addEventListener('feedRefreshed', handleFeedRefresh as EventListener);
+    window.addEventListener('feedRefreshed', handleFeedRefresh as unknown as EventListener);
     return () => {
-      window.removeEventListener('feedRefreshed', handleFeedRefresh as EventListener);
+      window.removeEventListener('feedRefreshed', handleFeedRefresh as unknown as EventListener);
     };
   }, [feedId]);
 
@@ -477,18 +568,18 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       const loadedEntries = props.entries 
         ? props.entries 
         : feedId 
-          ? await getFeedEntries(parseInt(feedId))
+          ? (await getFeedEntries(parseInt(feedId))).entries
           : location.pathname === '/starred'
             ? await getStarredEntries()
             : location.pathname === '/listened'
               ? await getListenedEntries()
-              : await getAllEntries();
+              : (await getAllEntries()).entries;
       setEntries(loadedEntries);
     };
 
-    window.addEventListener('entryReprocessed', handleEntryReprocess as EventListener);
+    window.addEventListener('entryReprocessed', handleEntryReprocess as unknown as EventListener);
     return () => {
-      window.removeEventListener('entryReprocessed', handleEntryReprocess as EventListener);
+      window.removeEventListener('entryReprocessed', handleEntryReprocess as unknown as EventListener);
     };
   }, [feedId, location.pathname, props.entries]);
 
@@ -502,49 +593,67 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       >
         {paginatedState.items.length === 0 ? (
           <div className={`text-center mt-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            {entries.length === 0 ? 'No entries to display' : 'No unread entries'}
+            {isLoadingPage ? 'Loading entries...' : (entries.length === 0 ? 'No entries to display' : 'No unread entries')}
           </div>
         ) : (
-          <>
-            <div
-              data-current-page={currentPage}
-              data-total-pages={paginatedState.totalPages}
-              data-prev-page-items={currentPage > 1 ? paginationService.getPage(currentPage - 1).length : 0}
-              data-next-page-items={currentPage < paginatedState.totalPages ? paginationService.getPage(currentPage + 1).length : 0}
-            >
-              {paginatedState.items.map((entry, index) => (
-                <FeedListEntry
-                  key={entry.id}
-                  entry={entry}
-                  index={index}
-                  isSelected={selectedIndex === index}
-                  isFocused={isFocused}
-                  isDarkMode={isDarkMode}
-                  isChatOpen={isChatOpen}
-                  isExpanded={expandedEntries[entry.id!] || false}
-                  onSelect={onSelectedIndexChange}
-                  onFocusChange={onFocusChange}
-                  onMarkAsRead={handleMarkAsRead}
-                  onToggleStar={handleToggleStar}
-                  onToggleExpand={toggleExpanded}
-                  onContentView={handleContentView}
-                  onContentLeave={(entryId) => {
-                    if (readTimerRef.current[entryId]) {
-                      clearTimeout(readTimerRef.current[entryId]);
-                      delete readTimerRef.current[entryId];
-                    }
-                  }}
-                  contentRef={(element) => {
-                    if (entry.id) {
-                      contentRefs.current[entry.id] = element;
-                    }
-                  }}
-                  onOpenChat={onOpenChat}
-                />
-              ))}
-              <PaginationFooter />
+          <div className="flex flex-col min-h-full">
+            <div className="flex-grow">
+              {isLoadingPage ? (
+                <div className={`text-center py-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Loading page {targetPage}...
+                </div>
+              ) : (
+                <div
+                  data-current-page={paginatedState.currentPage}
+                  data-total-pages={paginatedState.totalPages}
+                  data-prev-page-items={paginatedState.currentPage > 1 ? ITEMS_PER_PAGE : 0}
+                  data-next-page-items={paginatedState.currentPage < paginatedState.totalPages ? ITEMS_PER_PAGE : 0}
+                >
+                  {paginatedState.items.map((entry, index) => (
+                    <FeedListEntry
+                      key={entry.id}
+                      entry={entry}
+                      index={index}
+                      isSelected={selectedIndex === index}
+                      isFocused={isFocused}
+                      isDarkMode={isDarkMode}
+                      isChatOpen={isChatOpen}
+                      isExpanded={expandedEntries[entry.id!] || false}
+                      onSelect={onSelectedIndexChange}
+                      onFocusChange={onFocusChange}
+                      onMarkAsRead={handleMarkAsRead}
+                      onToggleStar={handleToggleStar}
+                      onToggleExpand={toggleExpanded}
+                      onContentView={handleContentView}
+                      onContentLeave={(entryId) => {
+                        if (readTimerRef.current[entryId]) {
+                          clearTimeout(readTimerRef.current[entryId]);
+                          delete readTimerRef.current[entryId];
+                        }
+                      }}
+                      contentRef={(element) => {
+                        if (entry.id) {
+                          contentRefs.current[entry.id] = element;
+                        }
+                      }}
+                      onOpenChat={onOpenChat}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          </>
+            {paginatedState.totalItems > ITEMS_PER_PAGE && (
+              <div className={`sticky bottom-0 w-full z-10 ${isDarkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                <Pagination
+                  currentPage={targetPage}
+                  totalPages={paginatedState.totalPages}
+                  totalItems={paginatedState.totalItems}
+                  onPageChange={handlePageChange}
+                  isLoading={isLoadingPage}
+                />
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -566,12 +675,12 @@ const FeedList: React.FC<FeedListProps> = (props) => {
               const loadedEntries = props.entries 
                 ? props.entries 
                 : feedId 
-                  ? await getFeedEntries(parseInt(feedId))
+                  ? (await getFeedEntries(parseInt(feedId))).entries
                   : location.pathname === '/starred'
                     ? await getStarredEntries()
                     : location.pathname === '/listened'
                       ? await getListenedEntries()
-                      : await getAllEntries();
+                      : (await getAllEntries()).entries;
               setEntries(loadedEntries);
             };
             loadLatest();

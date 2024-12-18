@@ -273,14 +273,118 @@ export async function addNewFeed(url: string, folderId?: number) {
   }
 }
 
+// Add this new function for parallel feed refreshing
+export async function refreshFeeds(feeds: Feed[]) {
+  console.log('Starting parallel refresh for', feeds.length, 'feeds');
+  
+  // First, check for and requeue any stalled entries
+  for (const feed of feeds) {
+    try {
+      // Get all entries for this feed that are marked as processing but don't have a summary
+      const stalledEntries = await db.entries
+        .where('feedId')
+        .equals(feed.id!)
+        .filter(entry => 
+          entry.requestProcessingStatus === 'pending' && 
+          !entry.content_aiSummary &&
+          (!entry.lastRequestAttempt || 
+           new Date().getTime() - new Date(entry.lastRequestAttempt).getTime() > 5 * 60 * 1000) // 5 minutes timeout
+        )
+        .toArray();
+
+      if (stalledEntries.length > 0) {
+        console.log('Found stalled entries for feed:', feed.title, stalledEntries.length);
+        // Requeue each stalled entry
+        await Promise.all(stalledEntries.map(entry => 
+          processEntry(entry.id!).catch(error => {
+            console.error('Error reprocessing stalled entry:', error);
+          })
+        ));
+      }
+    } catch (error) {
+      console.error('Error checking for stalled entries:', error);
+    }
+  }
+  
+  // Refresh all feeds in parallel
+  const refreshPromises = feeds.map(async (feed) => {
+    try {
+      console.log('Starting refresh for feed:', feed.title);
+      const parsedFeed = await parseFeed(feed.url);
+      
+      // First, add all new entries to the database without processing
+      const newEntryIds: number[] = [];
+      for (const item of parsedFeed.items) {
+        const isNew = await isNewEntry(feed.id!, item.link);
+        if (isNew) {
+          const entryId = await addEntry({
+            feedId: feed.id!,
+            title: item.title,
+            content_rssAbstract: convertToMarkdown(item.content),
+            link: item.link,
+            publishDate: new Date(item.pubDate),
+            isRead: false,
+            isStarred: false,
+            requestProcessingStatus: 'pending',
+            isListened: false,
+            lastRequestAttempt: undefined,
+            requestError: undefined,
+            content_aiSummary: undefined,
+            aiSummaryMetadata: undefined
+          });
+          if (entryId) {
+            newEntryIds.push(entryId as number);
+          }
+        }
+      }
+
+      // If we have new entries for this feed, process them immediately
+      if (newEntryIds.length > 0) {
+        const entries = await Promise.all(
+          newEntryIds.map(id => db.entries.get(id))
+        );
+        
+        // Sort entries by publish date, newest first
+        const sortedEntries = entries
+          .filter((entry): entry is FeedEntry => entry !== undefined)
+          .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
+
+        // Process all entries for this feed in parallel
+        console.log('Processing', sortedEntries.length, 'entries for feed:', feed.title);
+        await Promise.all(
+          sortedEntries.map(entry => 
+            processEntry(entry.id!).catch(error => {
+              console.error('Error processing entry:', error);
+            })
+          )
+        );
+
+        // Notify that this feed has been refreshed
+        window.dispatchEvent(new CustomEvent('feedRefreshed', {
+          detail: { feedId: feed.id }
+        }));
+      }
+      
+      return { feed, newEntryIds };
+    } catch (error) {
+      console.error('Error refreshing feed:', feed.title, error);
+      return { feed, newEntryIds: [] };
+    }
+  });
+  
+  // Wait for all feeds to be refreshed
+  const results = await Promise.all(refreshPromises);
+  
+  // Return the results
+  return results;
+}
+
+// Keep the single feed refresh function for individual feed updates
 export async function refreshFeed(feed: Feed) {
   try {
-    console.log('Starting refresh for feed:', feed.title);
-    const parsedFeed = await parseFeed(feed.url);
-    await processNewEntries(feed.id!, feed.title, parsedFeed.items);
-    console.log('Completed refresh for feed:', feed.title);
+    return (await refreshFeeds([feed]))[0];
   } catch (error) {
-    console.error('Error refreshing feed:', error);
+    console.error('Error refreshing single feed:', error);
     throw error;
   }
 } 

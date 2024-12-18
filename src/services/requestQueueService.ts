@@ -63,6 +63,34 @@ export const initializeQueue = (concurrency: number = 2) => {
   });
 };
 
+// Helper function for safe object cloning without circular references
+const safeClone = <T extends object>(obj: T): T => {
+  const seen = new WeakSet();
+  return JSON.parse(JSON.stringify(obj, (key, value) => {
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value)) {
+        return undefined; // Remove circular reference
+      }
+      seen.add(value);
+    }
+    return value;
+  }));
+};
+
+// Helper function to create a minimal request object
+const createMinimalRequest = (request: QueuedRequest): QueuedRequest => {
+  return {
+    entryId: request.entryId,
+    feedId: request.feedId,
+    feedTitle: request.feedTitle,
+    entryTitle: request.entryTitle,
+    status: request.status,
+    addedAt: request.addedAt,
+    type: request.type,
+    error: request.error
+  };
+};
+
 export const enqueueRequest = async <T>(
   request: () => Promise<T>,
   entryId?: number,
@@ -89,7 +117,6 @@ export const enqueueRequest = async <T>(
         console.error('Entry not found:', entryId);
         return Promise.reject(new Error('Entry not found'));
       }
-      console.log('Found entry:', JSON.stringify(entry, null, 2));
 
       // Get feed information
       console.log('Getting feed information for feedId:', entry.feedId);
@@ -98,9 +125,8 @@ export const enqueueRequest = async <T>(
         console.error('Feed not found:', entry.feedId);
         return Promise.reject(new Error('Feed not found'));
       }
-      console.log('Found feed:', JSON.stringify(feed, null, 2));
 
-      // Create a new request object with all information
+      // Create a minimal request object with only necessary information
       queuedRequest = {
         entryId,
         feedId: entry.feedId,
@@ -110,7 +136,6 @@ export const enqueueRequest = async <T>(
         addedAt: new Date(),
         type: 'summary'
       };
-      console.log('Created request with entry and feed info:', JSON.stringify(queuedRequest, null, 2));
 
       // Update entry status to pending and record attempt time
       await updateRequestStatus(entryId, 'pending');
@@ -120,14 +145,12 @@ export const enqueueRequest = async <T>(
     }
   }
 
-  // Add to queued requests with a deep copy
-  const queuedCopy = JSON.parse(JSON.stringify(queuedRequest));
+  // Add to queued requests with minimal copy
+  const queuedCopy = createMinimalRequest(queuedRequest);
   queuedRequests.push(queuedCopy);
-  console.log('Added request to queue:', JSON.stringify(queuedCopy, null, 2));
-  console.log('Current queued requests:', JSON.stringify(queuedRequests, null, 2));
   
   const stats = getQueueStats();
-  console.log('Adding request to queue. Current stats:', JSON.stringify(stats, null, 2));
+  window.dispatchEvent(new CustomEvent('queueChanged'));
   
   try {
     const result = await queue!.add(async () => {
@@ -137,20 +160,18 @@ export const enqueueRequest = async <T>(
         r.feedId === queuedRequest.feedId
       );
       if (requestIndex !== -1) {
-        // Create a new processing request object with a deep copy
-        const processingRequest = JSON.parse(JSON.stringify({
+        // Create a minimal processing request object
+        const processingRequest = createMinimalRequest({
           ...queuedRequest,
           status: 'processing' as const
-        }));
+        });
         processingRequests.push(processingRequest);
         queuedRequests.splice(requestIndex, 1);
-        console.log('Moved request to processing:', JSON.stringify(processingRequest, null, 2));
-        console.log('Current processing requests:', JSON.stringify(processingRequests, null, 2));
+        window.dispatchEvent(new CustomEvent('queueChanged'));
       }
 
       try {
         const response = await request();
-        // Update entry status if this is an entry request
         if (queuedRequest.entryId) {
           await updateRequestStatus(queuedRequest.entryId, 'success');
         }
@@ -158,11 +179,13 @@ export const enqueueRequest = async <T>(
         processingRequests = processingRequests.filter(r => 
           !(r.entryId === queuedRequest.entryId && r.feedId === queuedRequest.feedId)
         );
-        console.log('Request completed successfully:', JSON.stringify(queuedRequest, null, 2));
-        console.log('Current processing requests:', JSON.stringify(processingRequests, null, 2));
+        
+        window.dispatchEvent(new CustomEvent('entryProcessingComplete', {
+          detail: { entryId: queuedRequest.entryId }
+        }));
+        
         return response as T;
       } catch (error) {
-        // Update entry status if this is an entry request
         if (queuedRequest.entryId) {
           const errorInfo = {
             message: error instanceof Error ? error.message : 'Unknown error',
@@ -171,24 +194,22 @@ export const enqueueRequest = async <T>(
           };
           await updateRequestStatus(queuedRequest.entryId, 'failed', errorInfo);
         }
-        // Create a new failed request object with a deep copy
-        const failedRequest = JSON.parse(JSON.stringify({
+        // Create a minimal failed request object
+        const failedRequest = createMinimalRequest({
           ...queuedRequest,
           status: 'failed' as const,
           error: error instanceof Error ? error.message : 'Unknown error'
-        }));
+        });
         failedRequests.push(failedRequest);
         processingRequests = processingRequests.filter(r => 
           !(r.entryId === queuedRequest.entryId && r.feedId === queuedRequest.feedId)
         );
-        console.log('Request failed:', JSON.stringify(failedRequest, null, 2));
-        console.log('Current failed requests:', JSON.stringify(failedRequests, null, 2));
+        
+        window.dispatchEvent(new CustomEvent('queueChanged'));
         throw error;
       }
     }, { priority });
 
-    const updatedStats = getQueueStats();
-    console.log('Request completed. Updated stats:', JSON.stringify(updatedStats, null, 2));
     return result as T;
   } catch (error) {
     console.error('Request failed:', error);
@@ -199,19 +220,16 @@ export const enqueueRequest = async <T>(
 export const getQueueStats = () => {
   if (!queue) return { size: 0, pending: 0, requests: [] };
 
-  // Include all requests - queued, processing, and failed
-  // Use deep copies to ensure complete objects
+  // Create minimal copies of requests
   const allRequests = [
-    ...queuedRequests.map(r => JSON.parse(JSON.stringify(r))),
-    ...processingRequests.map(r => JSON.parse(JSON.stringify(r))),
-    ...failedRequests.map(r => JSON.parse(JSON.stringify(r)))
+    ...queuedRequests.map(createMinimalRequest),
+    ...processingRequests.map(createMinimalRequest),
+    ...failedRequests.map(createMinimalRequest)
   ];
-  
-  console.log('Getting queue stats - All requests:', JSON.stringify(allRequests, null, 2));
 
   return {
-    size: queuedRequests.length,  // Only count queued requests in size
-    pending: processingRequests.length,  // Only count processing requests in pending
+    size: queuedRequests.length,
+    pending: processingRequests.length,
     concurrency: queue.concurrency,
     requests: allRequests
   };

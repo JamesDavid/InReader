@@ -33,7 +33,7 @@ const Header: React.FC<HeaderProps> = ({
     const updateStats = () => {
       const stats = getQueueStats();
       setQueueStats({
-        size: stats.size,
+        size: stats.size + stats.pending,
         pending: stats.pending
       });
     };
@@ -41,9 +41,18 @@ const Header: React.FC<HeaderProps> = ({
     // Initial update
     updateStats();
 
-    // Update every second
-    const interval = setInterval(updateStats, 1000);
-    return () => clearInterval(interval);
+    // Update when queue changes
+    const handleQueueChange = () => {
+      updateStats();
+    };
+
+    window.addEventListener('queueChanged', handleQueueChange);
+    window.addEventListener('entryProcessingComplete', handleQueueChange);
+
+    return () => {
+      window.removeEventListener('queueChanged', handleQueueChange);
+      window.removeEventListener('entryProcessingComplete', handleQueueChange);
+    };
   }, []);
 
   return (
@@ -73,7 +82,7 @@ const Header: React.FC<HeaderProps> = ({
                 <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
               </svg>
             </button>
-            {queueStats.size > 0 && (
+            {(queueStats.size > 0 || queueStats.pending > 0) && (
               <div className={`absolute -top-1 -right-1 min-w-[1.2rem] h-[1.2rem] flex items-center justify-center text-xs rounded-full px-1
                 ${isDarkMode 
                   ? 'bg-reader-blue text-white' 

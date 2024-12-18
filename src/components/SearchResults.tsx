@@ -67,6 +67,13 @@ const SearchResults: React.FC = () => {
   // Add useEffect to update feed titles for deleted feeds
   useEffect(() => {
     const updateFeedTitles = async () => {
+      // Only update if we have entries and they haven't been processed yet
+      const needsUpdate = entries.some(entry => 
+        entry.feedId && (!entry.feedTitle || entry.feedTitle === 'Unknown Feed')
+      );
+      
+      if (!needsUpdate) return;
+
       const updatedEntries = await Promise.all(entries.map(async entry => {
         if (entry.feedId) {
           const feedTitle = await getFeedTitle(entry.feedId);
@@ -81,7 +88,7 @@ const SearchResults: React.FC = () => {
     };
 
     updateFeedTitles();
-  }, [entries]);
+  }, [entries.length]); // Only run when entries array length changes
 
   if (isLoading) {
     return (
