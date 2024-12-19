@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { type FeedEntryWithTitle, type ChatMessage, subscribeToEntryUpdates, db, getFeedTitle } from '../services/db';
 import { reprocessEntry } from '../services/feedParser';
 import ttsService from '../services/ttsService';
+import { gunService } from '../services/gunService';
 
 interface FeedListEntryProps {
   entry: FeedEntryWithTitle;
@@ -735,6 +736,75 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                 </svg>
                 <span>Email</span>
               </button>
+              {gunService.isAuthenticated() && (
+                <>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        await gunService.shareItem(currentEntry);
+                        window.dispatchEvent(new CustomEvent('showToast', {
+                          detail: { 
+                            message: 'Article shared successfully',
+                            type: 'success'
+                          }
+                        }));
+                      } catch (error) {
+                        window.dispatchEvent(new CustomEvent('showToast', {
+                          detail: { 
+                            message: 'Failed to share article',
+                            type: 'error'
+                          }
+                        }));
+                      }
+                    }}
+                    className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
+                      ${isDarkMode 
+                        ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                        : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}
+                    title="Share article"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" />
+                    </svg>
+                    <span>Share</span>
+                  </button>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const comment = prompt('Add a comment to share with this article:');
+                      if (comment !== null) {
+                        try {
+                          await gunService.shareItem(currentEntry, comment);
+                          window.dispatchEvent(new CustomEvent('showToast', {
+                            detail: { 
+                              message: 'Article shared with comment',
+                              type: 'success'
+                            }
+                          }));
+                        } catch (error) {
+                          window.dispatchEvent(new CustomEvent('showToast', {
+                            detail: { 
+                              message: 'Failed to share article',
+                              type: 'error'
+                            }
+                          }));
+                        }
+                      }
+                    }}
+                    className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
+                      ${isDarkMode 
+                        ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                        : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}
+                    title="Share article with comment"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 13V5a2 2 0 00-2-2H4a2 2 0 00-2 2v8a2 2 0 002 2h3l3 3 3-3h3a2 2 0 002-2zM5 7a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1zm1 3a1 1 0 100 2h3a1 1 0 100-2H6z" clipRule="evenodd" />
+                    </svg>
+                    <span>Share+</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

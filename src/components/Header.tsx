@@ -2,8 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import OllamaConfigModal from './OllamaConfigModal';
 import VoiceConfigModal from './VoiceConfigModal';
+import GunConfigModal from './GunConfigModal';
 import TTSQueueStatus from './TTSQueueStatus';
 import { getQueueStats } from '../services/requestQueueService';
+import { gunService } from '../services/gunService';
 
 interface HeaderProps {
   isDarkMode: boolean;
@@ -26,7 +28,21 @@ const Header: React.FC<HeaderProps> = ({
 }) => {
   const [isOllamaModalOpen, setIsOllamaModalOpen] = useState(false);
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
+  const [isGunModalOpen, setIsGunModalOpen] = useState(false);
   const [queueStats, setQueueStats] = useState({ size: 0, pending: 0 });
+  const [isGunAuthenticated, setIsGunAuthenticated] = useState(false);
+
+  // Add Gun authentication check effect
+  useEffect(() => {
+    const checkGunAuth = () => {
+      setIsGunAuthenticated(gunService.isAuthenticated());
+    };
+    checkGunAuth();
+    window.addEventListener('gunAuthChanged', checkGunAuth);
+    return () => {
+      window.removeEventListener('gunAuthChanged', checkGunAuth);
+    };
+  }, []);
 
   // Add queue stats update effect
   useEffect(() => {
@@ -93,6 +109,18 @@ const Header: React.FC<HeaderProps> = ({
             )}
           </div>
           <button
+            onClick={() => setIsGunModalOpen(true)}
+            className={`p-2 rounded-lg relative ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
+            title="Gun.js Configuration"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M21.72,4.28l-3-3a1,1,0,0,0-1.42,0L16,2.59,15.29,1.88a1,1,0,0,0-1.42,0l-1.5,1.5a1,1,0,0,0,0,1.42l.71.71L4.21,14.38A1,1,0,0,0,4,15v3a1,1,0,0,0,.3.71l2,2A1,1,0,0,0,7,21H10a1,1,0,0,0,.62-.21l9.87-8.87.71.71a1,1,0,0,0,1.42,0l1.5-1.5a1,1,0,0,0,0-1.42L23.41,8.29l1.31-1.31a1,1,0,0,0,0-1.42l-3-3ZM9.38,19H7.41l-1-1V16.41l8.83-8.83,2.59,2.59Z"/>
+            </svg>
+            {isGunAuthenticated && (
+              <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"></div>
+            )}
+          </button>
+          <button
             onClick={onShowUnreadToggle}
             className={`p-2 rounded-lg ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
             title={showUnreadOnly ? "Showing unread only" : "Showing all items"}
@@ -133,6 +161,12 @@ const Header: React.FC<HeaderProps> = ({
       <VoiceConfigModal
         isOpen={isVoiceModalOpen}
         onClose={() => setIsVoiceModalOpen(false)}
+        isDarkMode={isDarkMode}
+      />
+
+      <GunConfigModal
+        isOpen={isGunModalOpen}
+        onClose={() => setIsGunModalOpen(false)}
         isDarkMode={isDarkMode}
       />
     </>

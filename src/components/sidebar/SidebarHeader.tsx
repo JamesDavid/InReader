@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { FolderIcon, MagnifyingGlassIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
+import { FolderIcon, MagnifyingGlassIcon, ChevronDownIcon, PlusCircleIcon } from '@heroicons/react/24/outline';
 import FeedManagementModal from '../FeedManagementModal';
+import GunFollowModal from '../GunFollowModal';
+import { gunService } from '../../services/gunService';
 
 interface HeaderButton {
   icon: React.ReactNode;
@@ -24,7 +26,7 @@ interface SidebarHeaderProps {
   onUpdateFolderOrder: (updates: { folderId: string; order: number }[]) => Promise<void>;
   onRenameFolder: (folderId: string, newName: string) => Promise<void>;
   onRenameFeed: (feedId: number, newTitle: string) => Promise<void>;
-  type?: 'default' | 'searches';
+  type?: 'default' | 'searches' | 'gun';
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
   onOpenSearch?: () => void;
@@ -50,6 +52,11 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({
   onOpenSearch,
 }) => {
   const [isManagementModalOpen, setIsManagementModalOpen] = useState(false);
+  const [isGunFollowModalOpen, setIsGunFollowModalOpen] = useState(false);
+
+  const handleFollow = async (pubKey: string) => {
+    await gunService.followUser(pubKey);
+  };
 
   const renderManagementButton = () => {
     if (type === 'searches') {
@@ -66,6 +73,22 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({
           title="Search feeds"
         >
           <MagnifyingGlassIcon className="h-4 w-4" />
+        </button>
+      );
+    }
+
+    if (type === 'gun') {
+      return (
+        <button
+          onClick={() => setIsGunFollowModalOpen(true)}
+          className={`p-1 rounded transition-colors ${
+            isDarkMode 
+              ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+              : 'hover:bg-gray-200 text-gray-500 hover:text-gray-700'
+          }`}
+          title="Follow user by public key"
+        >
+          <PlusCircleIcon className="h-4 w-4" />
         </button>
       );
     }
@@ -89,7 +112,7 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({
     <>
       <div className={`mt-4 mb-2 px-4 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border rounded-lg py-2 mx-2 flex items-center justify-between`}>
         <div className="flex items-center gap-2">
-          {type === 'searches' && onToggleCollapse && (
+          {(type === 'searches' || type === 'gun') && onToggleCollapse && (
             <button
               onClick={onToggleCollapse}
               className={`p-1 rounded transition-colors ${
@@ -124,7 +147,7 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {type === 'searches' && renderManagementButton()}
+          {(type === 'searches' || type === 'gun') && renderManagementButton()}
           {type === 'default' && (
             <>
               {buttons.filter(b => b.title !== "Refresh all feeds").map((button, index) => (
@@ -162,6 +185,15 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({
           onUpdateFolderOrder={onUpdateFolderOrder}
           onRenameFolder={onRenameFolder}
           onRenameFeed={onRenameFeed}
+        />
+      )}
+
+      {type === 'gun' && (
+        <GunFollowModal
+          isOpen={isGunFollowModalOpen}
+          onClose={() => setIsGunFollowModalOpen(false)}
+          isDarkMode={isDarkMode}
+          onFollow={handleFollow}
         />
       )}
     </>

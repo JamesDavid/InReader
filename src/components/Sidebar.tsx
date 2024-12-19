@@ -25,6 +25,7 @@ import SidebarSearchItem from './sidebar/SidebarSearchItem';
 import SidebarFeedItem from './sidebar/SidebarFeedItem';
 import SidebarHeader from './sidebar/SidebarHeader';
 import SidebarFeedFolder from './sidebar/SidebarFeedFolder';
+import { gunService } from '../services/gunService';
 
 interface NavigationItem {
   id?: string | number;
@@ -61,6 +62,11 @@ interface VisibleItem {
   onDelete?: () => Promise<void>;
 }
 
+interface GunFeed {
+  pub: string;
+  name: string;
+}
+
 const Sidebar: React.FC<SidebarProps> = ({ 
   className = '', 
   isFocused, 
@@ -89,6 +95,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   const navigate = useNavigate();
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isKeyboardNavRef = useRef(false);
+  const [gunFeeds, setGunFeeds] = useState<GunFeed[]>([]);
+  const [isGunFeedsCollapsed, setIsGunFeedsCollapsed] = useState(false);
 
   // Create search items from search history
   const searchItems = useMemo(() => 
@@ -454,6 +462,51 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [isRefreshing]);
 
+  // Update the effect that loads Gun feeds
+  useEffect(() => {
+    const loadGunFeeds = async () => {
+      if (gunService.isAuthenticated()) {
+        try {
+          // Get the current user's profile
+          const currentUserKey = JSON.parse(gunService.getConfig().privateKey).pub;
+          const currentUserProfile = await gunService.getUserProfile(currentUserKey);
+          
+          // Get followed users
+          const followedUsers = gunService.getFollowedUsers();
+          const followedProfiles = await Promise.all(
+            followedUsers.map(pubKey => gunService.getUserProfile(pubKey))
+          );
+
+          // Combine current user and followed users
+          const allFeeds = [currentUserProfile, ...followedProfiles].map(profile => ({
+            pub: profile.pub,
+            name: profile.name === 'Unknown User' ? truncatePublicKey(profile.pub) : profile.name
+          }));
+
+          setGunFeeds(allFeeds);
+        } catch (error) {
+          console.error('Error loading Gun feeds:', error);
+          setGunFeeds([]);
+        }
+      }
+    };
+
+    loadGunFeeds();
+    
+    // Listen for auth changes
+    window.addEventListener('gunAuthChanged', loadGunFeeds);
+    
+    // Listen for followed users changes
+    const cleanup = gunService.onFollowedUsersChange(() => {
+      loadGunFeeds();
+    });
+
+    return () => {
+      window.removeEventListener('gunAuthChanged', loadGunFeeds);
+      cleanup();
+    };
+  }, []);
+
   return (
     <div 
       ref={sidebarRef} 
@@ -475,6 +528,44 @@ const Sidebar: React.FC<SidebarProps> = ({
             onFocusChange={onFocusChange}
           />
         ))}
+
+        {/* Gun Feeds Section */}
+        {gunService.isAuthenticated() && (
+          <>
+            <SidebarHeader
+              title="Gun Feeds"
+              isDarkMode={isDarkMode}
+              type="gun"
+              isCollapsed={isGunFeedsCollapsed}
+              onToggleCollapse={() => setIsGunFeedsCollapsed(!isGunFeedsCollapsed)}
+              folders={[]}
+              feeds={[]}
+              onCreateFolder={() => {}}
+              onDeleteFolder={() => Promise.resolve()}
+              onDeleteFeed={() => Promise.resolve()}
+              onUpdateFeedOrder={() => Promise.resolve()}
+              onUpdateFolderOrder={() => Promise.resolve()}
+              onRenameFolder={() => Promise.resolve()}
+              onRenameFeed={() => Promise.resolve()}
+            />
+            {!isGunFeedsCollapsed && gunFeeds.map((feed) => {
+              const itemIndex = visibleItems.findIndex(item => item.path === `/gun/${feed.pub}`);
+              return (
+                <SidebarMainItem
+                  key={feed.pub}
+                  path={`/gun/${feed.pub}`}
+                  title={`${feed.name}'s Shared Items`}
+                  isActive={location.pathname === `/gun/${feed.pub}`}
+                  isSelected={selectedIndex === itemIndex}
+                  isDarkMode={isDarkMode}
+                  index={itemIndex}
+                  onSelect={onSelectedIndexChange}
+                  onFocusChange={onFocusChange}
+                />
+              );
+            })}
+          </>
+        )}
 
         {/* Search Items */}
         {searchItems.length > 0 && (
