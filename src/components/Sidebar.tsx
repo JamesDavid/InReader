@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   getAllFeeds, 
   getFolders, 
-  deleteSavedSearch, 
   deleteFeed, 
   deleteFolder, 
   getUnreadEntries, 
@@ -25,7 +24,7 @@ import SidebarSearchItem from './sidebar/SidebarSearchItem';
 import SidebarFeedItem from './sidebar/SidebarFeedItem';
 import SidebarHeader from './sidebar/SidebarHeader';
 import SidebarFeedFolder from './sidebar/SidebarFeedFolder';
-import { gunService } from '../services/gunService';
+import { gunService, truncatePublicKey } from '../services/gunService';
 
 interface NavigationItem {
   id?: string | number;
@@ -445,7 +444,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     try {
       const feeds = await getAllFeeds();
       for (const feed of feeds) {
-        if (feed.isDeleted) continue;
+        if (feed.isDeleted || !feed.id) continue;
         
         // Dispatch event to start refresh for this feed
         window.dispatchEvent(new CustomEvent('feedRefreshStart', {
@@ -453,7 +452,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         }));
 
         try {
-          await refreshFeed(feed.id);
+          await refreshFeed(feed);
           // Dispatch success event
           window.dispatchEvent(new CustomEvent('feedRefreshComplete', {
             detail: { feedId: feed.id, success: true }
@@ -489,10 +488,14 @@ const Sidebar: React.FC<SidebarProps> = ({
           );
 
           // Combine current user and followed users
-          const allFeeds = [currentUserProfile, ...followedProfiles].map(profile => ({
-            pub: profile.pub,
-            name: profile.name === 'Unknown User' ? truncatePublicKey(profile.pub) : profile.name
-          }));
+          type GunProfile = { pub: string; name: string };
+          const allFeeds = [currentUserProfile, ...followedProfiles].map((profile) => {
+            const p = profile as GunProfile;
+            return {
+              pub: p.pub,
+              name: p.name === 'Unknown User' ? truncatePublicKey(p.pub) : p.name
+            };
+          });
 
           setGunFeeds(allFeeds);
         } catch (error) {
@@ -551,7 +554,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               onToggleCollapse={() => setIsGunFeedsCollapsed(!isGunFeedsCollapsed)}
               folders={[]}
               feeds={[]}
-              onCreateFolder={() => {}}
+              onCreateFolder={() => Promise.resolve()}
               onDeleteFolder={() => Promise.resolve()}
               onDeleteFeed={() => Promise.resolve()}
               onUpdateFeedOrder={() => Promise.resolve()}

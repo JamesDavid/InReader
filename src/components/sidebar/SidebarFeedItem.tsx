@@ -16,6 +16,7 @@ interface SidebarFeedItemProps {
   onFocusChange: (focused: boolean) => void;
   onDelete: () => void;
   onUnreadCountChange?: (feedId: number, count: number) => void;
+  isDeleted?: boolean;
 }
 
 const getBadgeColors = (timestamp: Date | null, isDarkMode: boolean): string => {

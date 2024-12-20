@@ -15,6 +15,7 @@ export function truncatePublicKey(pubKey: string): string {
 }
 
 export interface SharedItem {
+  _id?: string;
   id: string;
   title: string;
   link: string;
@@ -37,7 +38,7 @@ export interface SharedItem {
 }
 
 // Add this interface for feed entries
-interface FeedEntry {
+export interface FeedEntry {
   id: number;
   title: string;
   link: string;

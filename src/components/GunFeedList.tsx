@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useOutletContext } from 'react-router-dom';
-import { gunService, truncatePublicKey, type SharedItem, verifySharedItem } from '../services/gunService';
+import { gunService, truncatePublicKey, type SharedItem, verifySharedItem, type FeedEntry } from '../services/gunService';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { 
@@ -118,7 +118,7 @@ const GunFeedList: React.FC = () => {
     await ttsService.addToQueue({
       id: parseInt(item.id),
       title: item.title,
-      content: item.content,
+      content_rssAbstract: item.content,
       link: item.link,
       publishDate: new Date(item.publishDate),
       feedTitle: item.feedTitle || '',
@@ -133,21 +133,26 @@ const GunFeedList: React.FC = () => {
   };
 
   const handleShare = async (item: SharedItem, withComment: boolean = false) => {
-    const comment = withComment ? prompt('Add a comment to share:') : undefined;
-    if (withComment && !comment) return; // User cancelled
+    let comment: string | undefined;
+    if (withComment) {
+      const promptResult = prompt('Add a comment to share:');
+      if (promptResult === null) return; // User cancelled
+      comment = promptResult;
+    }
     
     try {
       await gunService.shareItem({
         id: parseInt(item.id),
         title: item.title,
-        link: item.link,
         content_fullArticle: item.content,
+        content_rssAbstract: item.content,
         content_aiSummary: item.content_aiSummary,
         aiSummaryMetadata: item.aiSummaryMetadata,
         publishDate: new Date(item.publishDate),
         feedTitle: item.feedTitle,
-        feedUrl: item.feedUrl
-      }, comment);
+        feedUrl: item.feedUrl,
+        link: item.link
+      } as FeedEntry, comment);
     } catch (error) {
       console.error('Error sharing item:', error);
     }
@@ -439,7 +444,9 @@ const GunFeedList: React.FC = () => {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleUnshare(item._id);
+                            if (item._id) {
+                              handleUnshare(item._id);
+                            }
                           }}
                           className="p-2 rounded-full transition-colors text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                           title="Unshare article"
