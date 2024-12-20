@@ -1,22 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useOutletContext } from 'react-router-dom';
-import { gunService, truncatePublicKey } from '../services/gunService';
+import { gunService, truncatePublicKey, type SharedItem, verifySharedItem } from '../services/gunService';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-
-interface SharedItem {
-  id: string;
-  title: string;
-  content: string;
-  link: string;
-  publishDate: string;
-  sharedAt: string;
-  comment?: string;
-  sharedBy: {
-    pub: string;
-    name: string;
-  };
-}
+import { 
+  CheckCircleIcon, 
+  XCircleIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  SpeakerWaveIcon,
+  EnvelopeIcon,
+  ShareIcon,
+  ChatBubbleLeftEllipsisIcon,
+  TrashIcon
+} from '@heroicons/react/24/solid';
+import ttsService from '../services/ttsService';
 
 interface ContextType {
   isDarkMode: boolean;
@@ -34,10 +32,42 @@ const GunFeedList: React.FC = () => {
   const context = useOutletContext<ContextType>();
   const isDarkMode = context.isDarkMode;
   const { pubKey } = useParams<{ pubKey: string }>();
-  const [items, setItems] = useState<SharedItem[]>([]);
+  const [items, setItems] = useState<(SharedItem & { isVerified?: boolean; isExpanded?: boolean })[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<{ pub: string; name: string } | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [copiedPubKey, setCopiedPubKey] = useState<string | null>(null);
+
+  // Handle keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'j' || e.key === 'k') {
+        e.preventDefault();
+        setSelectedIndex(prevIndex => {
+          const newIndex = e.key === 'j' 
+            ? Math.min(prevIndex + 1, items.length - 1)
+            : Math.max(prevIndex - 1, 0);
+          
+          // Scroll the selected item into view
+          const element = document.querySelector(`[data-index="${newIndex}"]`);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
+          
+          return newIndex;
+        });
+      } else if (e.key === 'Enter' && selectedIndex >= 0) {
+        e.preventDefault();
+        const item = items[selectedIndex];
+        toggleExpanded(item.id + '_' + item.sharedAt);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [items.length, selectedIndex]);
 
   useEffect(() => {
     const loadSharedItems = async () => {
@@ -52,8 +82,16 @@ const GunFeedList: React.FC = () => {
           gunService.getSharedItems(pubKey)
         ]);
 
+        // Verify signatures for all items
+        const verifiedItems = await Promise.all(
+          (sharedItems as SharedItem[]).map(async (item: SharedItem) => ({
+            ...item,
+            isVerified: await verifySharedItem(item)
+          }))
+        );
+
         setUserProfile(profile as { pub: string; name: string });
-        setItems(sharedItems as SharedItem[]);
+        setItems(verifiedItems);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load shared items');
       } finally {
@@ -63,6 +101,69 @@ const GunFeedList: React.FC = () => {
 
     loadSharedItems();
   }, [pubKey]);
+
+  const toggleExpanded = (itemId: string) => {
+    setExpandedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  };
+
+  const handleListen = async (item: SharedItem) => {
+    await ttsService.addToQueue({
+      id: parseInt(item.id),
+      title: item.title,
+      content: item.content,
+      link: item.link,
+      publishDate: new Date(item.publishDate),
+      feedTitle: item.feedTitle || '',
+      chatHistory: []
+    });
+  };
+
+  const handleEmail = (item: SharedItem) => {
+    const subject = encodeURIComponent(item.title);
+    const body = encodeURIComponent(`${item.content}\n\nRead more: ${item.link}`);
+    window.open(`mailto:?subject=${subject}&body=${body}`);
+  };
+
+  const handleShare = async (item: SharedItem, withComment: boolean = false) => {
+    const comment = withComment ? prompt('Add a comment to share:') : undefined;
+    if (withComment && !comment) return; // User cancelled
+    
+    try {
+      await gunService.shareItem({
+        id: parseInt(item.id),
+        title: item.title,
+        link: item.link,
+        content_fullArticle: item.content,
+        content_aiSummary: item.content_aiSummary,
+        aiSummaryMetadata: item.aiSummaryMetadata,
+        publishDate: new Date(item.publishDate),
+        feedTitle: item.feedTitle,
+        feedUrl: item.feedUrl
+      }, comment);
+    } catch (error) {
+      console.error('Error sharing item:', error);
+    }
+  };
+
+  const handleUnshare = async (itemId: string) => {
+    if (!confirm('Are you sure you want to unshare this item?')) return;
+    
+    try {
+      await gunService.unshareItem(itemId);
+      // Remove the item from the local state
+      setItems(prevItems => prevItems.filter(item => item._id !== itemId));
+    } catch (error) {
+      console.error('Error unsharing item:', error);
+    }
+  };
 
   const renderUserName = (pubKey: string, displayName?: string) => {
     if (displayName && displayName !== 'Unknown User') return displayName;
@@ -97,6 +198,17 @@ const GunFeedList: React.FC = () => {
     prose-code:text-blue-500 prose-code:bg-gray-100 prose-code:rounded prose-code:px-1
     prose-a:text-blue-500 hover:prose-a:text-blue-600
     ${isDarkMode ? 'prose-code:bg-gray-700' : ''}`;
+
+  const handleCopyPubKey = async (pubKey: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(pubKey);
+      setCopiedPubKey(pubKey);
+      setTimeout(() => setCopiedPubKey(null), 2000);
+    } catch (error) {
+      console.error('Failed to copy public key:', error);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -143,64 +255,205 @@ const GunFeedList: React.FC = () => {
         <h2 className={`text-lg font-medium ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
           {userProfile?.pub === JSON.parse(gunService.getConfig().privateKey).pub
             ? "Your Shared Items"
-            : `${renderUserName(userProfile?.pub || '', userProfile?.name)}'s Shared Items`}
+            : `${userProfile?.name}'s Shared Items`}
         </h2>
       </div>
       <div className={`divide-y ${isDarkMode ? 'divide-gray-800' : 'divide-gray-200'}`}>
-        {items.map((item, index) => (
-          <article
-            key={`${item.id}_${item.sharedAt}`}
-            data-index={index}
-            className={`border-b transition-colors ${isDarkMode ? 'border-gray-800 hover:bg-gray-800' : 'border-gray-100 hover:bg-reader-hover'}`}
-          >
-            <div className="flex items-center px-4 py-2 gap-4">
-              <div className="flex-grow min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className={`text-base font-medium flex-grow min-w-0 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
-                    <a
-                      href={item.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`hover:underline ${isDarkMode ? 'hover:text-blue-400' : 'hover:text-reader-blue'}`}
-                    >
-                      {item.title}
-                    </a>
-                  </h3>
+        {items.map((item, index) => {
+          const itemId = `${item.id}_${item.sharedAt}`;
+          const isExpanded = expandedItems.has(itemId);
+          
+          return (
+            <article
+              key={itemId}
+              data-index={index}
+              className={`border-b transition-colors ${
+                isDarkMode 
+                  ? 'border-gray-800 hover:bg-gray-800' 
+                  : 'border-gray-100 hover:bg-reader-hover'
+              } ${selectedIndex === index ? (isDarkMode ? 'bg-gray-800' : 'bg-reader-hover') : ''}`}
+            >
+              <div 
+                className="flex items-center px-4 py-2 gap-4 cursor-pointer"
+                onClick={() => toggleExpanded(itemId)}
+              >
+                <div className="flex-grow min-w-0">
+                  <div className="flex items-center gap-2">
+                    {isExpanded ? (
+                      <ChevronDownIcon className="h-5 w-5 shrink-0" />
+                    ) : (
+                      <ChevronRightIcon className="h-5 w-5 shrink-0" />
+                    )}
+                    <h3 className={`text-base font-medium flex-grow min-w-0 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
+                      <a
+                        href={item.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`hover:underline ${isDarkMode ? 'hover:text-blue-400' : 'hover:text-reader-blue'}`}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {item.title}
+                      </a>
+                    </h3>
+                    {item.isVerified !== undefined && (
+                      item.isVerified ? (
+                        <CheckCircleIcon className="h-5 w-5 text-green-500 shrink-0" title="Signature verified" />
+                      ) : (
+                        <XCircleIcon className="h-5 w-5 text-red-500 shrink-0" title="Invalid signature" />
+                      )
+                    )}
+                  </div>
+                  <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Shared by {item.sharedBy?.name || 'Unknown User'} {' '}
+                    {item.sharedBy?.pub && (
+                      <button
+                        onClick={(e) => handleCopyPubKey(item.sharedBy.pub, e)}
+                        className={`inline-flex items-center px-2 py-0.5 rounded transition-colors ${
+                          isDarkMode 
+                            ? 'bg-gray-700 hover:bg-gray-600' 
+                            : 'bg-gray-200 hover:bg-gray-300'
+                        } ${copiedPubKey === item.sharedBy.pub ? 'text-green-500' : ''}`}
+                        title={`Click to copy: ${item.sharedBy.pub}`}
+                      >
+                        {copiedPubKey === item.sharedBy.pub ? 'Copied!' : truncatePublicKey(item.sharedBy.pub)}
+                      </button>
+                    )}
+                  </div>
+                  {item.feedTitle && (
+                    <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      From <a 
+                        href={item.feedUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className={`hover:underline ${isDarkMode ? 'hover:text-blue-400' : 'hover:text-reader-blue'}`}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {item.feedTitle}
+                      </a>
+                    </div>
+                  )}
                 </div>
-                <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Shared by {renderUserName(item.sharedBy.pub, item.sharedBy.name)}
+                <div className="flex items-center gap-2 shrink-0">
+                  <time
+                    dateTime={item.sharedAt}
+                    className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}
+                  >
+                    {formatDate(item.sharedAt)}
+                  </time>
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <time
-                  dateTime={item.sharedAt}
-                  className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}
-                >
-                  {formatDate(item.sharedAt)}
-                </time>
-              </div>
-            </div>
-            <div className={`px-4 pb-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-              {item.comment && (
-                <div className={`mb-4 p-3 rounded-lg ${
-                  isDarkMode 
-                    ? 'bg-gray-800/50 text-gray-300 border border-gray-700' 
-                    : 'bg-gray-50 text-gray-700 border border-gray-200'
-                }`}>
-                  <p className="text-sm italic">"{item.comment}"</p>
+              {isExpanded && (
+                <div className={`px-4 pb-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  {item.comment && (
+                    <div className={`mb-4 p-3 rounded-lg ${
+                      isDarkMode 
+                        ? 'bg-gray-800/50 text-gray-300 border border-gray-700' 
+                        : 'bg-gray-50 text-gray-700 border border-gray-200'
+                    }`}>
+                      <p className="text-sm italic">"{item.comment}"</p>
+                    </div>
+                  )}
+                  {item.content_aiSummary && (
+                    <div className={`mb-4 p-4 rounded border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+                      <div className={`text-sm font-medium mb-2 flex items-center gap-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                        <span>Summary</span>
+                        {item.aiSummaryMetadata?.model && (
+                          <>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              isDarkMode ? 'bg-blue-500/20 text-blue-200' : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {item.aiSummaryMetadata.model}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              isDarkMode 
+                                ? (item.aiSummaryMetadata.isFullContent ? 'bg-green-500/20 text-green-200' : 'bg-yellow-500/20 text-yellow-200')
+                                : (item.aiSummaryMetadata.isFullContent ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800')
+                            }`}>
+                              {item.aiSummaryMetadata.isFullContent ? 'Full article' : 'RSS preview'}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <div className={computedMarkdownClass}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {item.content_aiSummary}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  )}
+                  <div className={computedMarkdownClass}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {item.content}
+                    </ReactMarkdown>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between">
+                    <div className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Originally published {new Date(item.publishDate).toLocaleDateString()}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleListen(item)}
+                        className={`p-2 rounded-full transition-colors ${
+                          isDarkMode 
+                            ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-300' 
+                            : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
+                        }`}
+                        title="Listen to article"
+                      >
+                        <SpeakerWaveIcon className="h-5 w-5" />
+                      </button>
+                      <button
+                        onClick={() => handleEmail(item)}
+                        className={`p-2 rounded-full transition-colors ${
+                          isDarkMode 
+                            ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-300' 
+                            : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
+                        }`}
+                        title="Email article"
+                      >
+                        <EnvelopeIcon className="h-5 w-5" />
+                      </button>
+                      <button
+                        onClick={() => handleShare(item)}
+                        className={`p-2 rounded-full transition-colors ${
+                          isDarkMode 
+                            ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-300' 
+                            : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
+                        }`}
+                        title="Share article"
+                      >
+                        <ShareIcon className="h-5 w-5" />
+                      </button>
+                      <button
+                        onClick={() => handleShare(item, true)}
+                        className={`p-2 rounded-full transition-colors ${
+                          isDarkMode 
+                            ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-300' 
+                            : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'
+                        }`}
+                        title="Share article with comment"
+                      >
+                        <ChatBubbleLeftEllipsisIcon className="h-5 w-5" />
+                      </button>
+                      {userProfile?.pub === JSON.parse(gunService.getConfig().privateKey).pub && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleUnshare(item._id);
+                          }}
+                          className="p-2 rounded-full transition-colors text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                          title="Unshare article"
+                        >
+                          <TrashIcon className="h-5 w-5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
-              <div className={computedMarkdownClass}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {item.content}
-                </ReactMarkdown>
-              </div>
-              <div className={`mt-4 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                Originally published {new Date(item.publishDate).toLocaleDateString()}
-              </div>
-            </div>
-          </article>
-        ))}
+            </article>
+          );
+        })}
       </div>
     </div>
   );

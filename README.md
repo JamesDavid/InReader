@@ -20,6 +20,41 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 - **Offline Support** - IndexedDB-based local storage for articles and feeds
 - **Search** - Full-text search with saved search history
 
+### 🔄 Decentralized Sharing with Gun.js
+InReader includes a decentralized sharing system powered by Gun.js, allowing users to share articles and interact with a network of readers:
+
+#### Key Sharing Features
+- **Decentralized Architecture** - Peer-to-peer sharing without central servers
+- **Cryptographic Security** - Public/private key pairs for authentication and signing
+- **Verified Content** - Digital signatures ensure content authenticity
+- **User Profiles** - Customizable display names with public key identifiers
+- **Follow System** - Follow other users to see their shared articles
+- **Shared Feed Management** - Organize and manage followed users' feeds
+- **Rich Content Sharing** - Share articles with AI summaries and personal comments
+- **Interactive Features** - Copy public keys, verify signatures, and manage shared items
+
+#### Sharing Capabilities
+- Share articles with or without comments
+- Include AI-generated summaries in shared content
+- View shared items in a dedicated feed
+- Unshare items with one click
+- Verify content authenticity through signatures
+- Track sharing timestamps and history
+
+#### Security & Privacy
+- SEA (Security, Encryption, Authorization) for cryptographic operations
+- Public/private key pair generation and management
+- Secure key export and import functionality
+- Connection status monitoring
+- Signature verification for shared content
+
+#### User Management
+- Follow/unfollow other users
+- Manage display names for followed users
+- Organize followed users with drag-and-drop
+- Copy and share public keys easily
+- Monitor connection status to relay servers
+
 ### 🔄 Technical Features
 #### Feed System
 - Parallel feed refresh with stalled entry detection
@@ -105,7 +140,7 @@ npm install
 npm run dev
 ```
 
-## 🛠�� Tech Stack
+## 🛠 Tech Stack
 - ⚛️ React
 - 📘 TypeScript
 - 🎨 Tailwind CSS

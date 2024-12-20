@@ -179,6 +179,17 @@ const Sidebar: React.FC<SidebarProps> = ({
     // Add main items
     items.push(...mainItems);
     
+    // Add Gun feeds if authenticated and not collapsed
+    if (gunService.isAuthenticated() && !isGunFeedsCollapsed && gunFeeds.length > 0) {
+      gunFeeds.forEach(feed => {
+        items.push({
+          id: `gun-${feed.pub}`,
+          path: `/gun/${feed.pub}`,
+          title: `${feed.name}'s Shared Items`
+        });
+      });
+    }
+    
     // Add search items if not collapsed
     if (!isSearchesCollapsed && searchItems.length > 0) {
       items.push(...searchItems);
@@ -210,7 +221,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     });
     
     return items;
-  }, [mainItems, searchItems, feedItems, folders, feeds, isSearchesCollapsed, collapsedFolders]);
+  }, [mainItems, searchItems, feedItems, folders, feeds, isSearchesCollapsed, collapsedFolders, gunFeeds, isGunFeedsCollapsed]);
 
   const loadData = useCallback(async () => {
     try {
@@ -561,6 +572,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                   index={itemIndex}
                   onSelect={onSelectedIndexChange}
                   onFocusChange={onFocusChange}
+                  isGunFeed={true}
+                  pubKey={feed.pub}
                 />
               );
             })}

@@ -14,6 +14,100 @@ export function truncatePublicKey(pubKey: string): string {
   return `${pubKey.slice(0, 8)}...${pubKey.slice(-8)}`;
 }
 
+export interface SharedItem {
+  id: string;
+  title: string;
+  link: string;
+  content: string;
+  content_aiSummary?: string;
+  aiSummaryMetadata?: {
+    model: string;
+    isFullContent: boolean;
+  };
+  publishDate: string;
+  sharedAt: string;
+  sharedBy: {
+    pub: string;
+    name: string;
+  };
+  comment?: string;
+  signature?: string;
+  feedTitle?: string;
+  feedUrl?: string;
+}
+
+// Add this interface for feed entries
+interface FeedEntry {
+  id: number;
+  title: string;
+  link: string;
+  content_fullArticle?: string;
+  content_rssAbstract?: string;
+  content_aiSummary?: string;
+  aiSummaryMetadata?: {
+    model: string;
+    isFullContent: boolean;
+  };
+  publishDate: Date;
+  feedTitle?: string;
+  feedUrl?: string;
+}
+
+// Update the verifySharedItem function
+export const verifySharedItem = async (item: SharedItem): Promise<boolean> => {
+  if (!item.signature || !item.sharedBy?.pub) {
+    console.log('Missing signature or public key:', { 
+      signature: !!item.signature, 
+      pubKey: !!item.sharedBy?.pub,
+      item 
+    });
+    return false;
+  }
+  
+  try {
+    // Handle both old and new signature formats
+    let signature = item.signature;
+    if (signature.startsWith('SEA')) {
+      signature = signature.substring(3);
+    }
+    
+    // Parse the signature object
+    const seaObj = JSON.parse(signature);
+    if (!seaObj || !seaObj.m || !seaObj.s) {
+      console.log('Invalid signature format:', signature);
+      return false;
+    }
+
+    // Parse the message to get the original data
+    const message = JSON.parse(seaObj.m);
+    console.log('Verifying signature:', {
+      message,
+      pubKey: item.sharedBy.pub,
+      signature: seaObj.s
+    });
+
+    // Verify the signature
+    const verified = await SEA.verify(seaObj.s, item.sharedBy.pub);
+    console.log('Verification result:', verified);
+    
+    if (!verified) return false;
+
+    // Compare the verified data with our message
+    return (
+      verified.id === message.id &&
+      verified.title === message.title &&
+      verified.link === message.link &&
+      verified.publishDate === message.publishDate &&
+      verified.sharedAt === message.sharedAt &&
+      verified.comment === message.comment &&
+      verified.sharedBy === message.sharedBy
+    );
+  } catch (error) {
+    console.error('Error verifying signature:', error);
+    return false;
+  }
+};
+
 class GunService {
   private gun: any = null;
   private user: any = null;
@@ -186,28 +280,72 @@ class GunService {
       throw new Error('Gun not initialized or user not authenticated');
     }
 
-    const sharedItem = {
-      id: entry.id,
+    // Create a clean shared item object with no undefined values
+    const sharedItem: SharedItem = {
+      id: entry.id!.toString(),
       title: entry.title,
-      content: entry.content_fullArticle || entry.content_rssAbstract,
+      content: entry.content_fullArticle || entry.content_rssAbstract || '',
       link: entry.link,
       publishDate: entry.publishDate.toISOString(),
       sharedAt: new Date().toISOString(),
-      comment: comment || null,
       sharedBy: {
         pub: this.user.is.pub,
         name: this.config.displayName
-      }
+      },
+      feedTitle: entry.feedTitle,
+      feedUrl: entry.feedUrl
     };
+
+    // Only add optional fields if they exist and have values
+    if (entry.content_aiSummary) {
+      sharedItem.content_aiSummary = entry.content_aiSummary;
+    }
+
+    if (entry.aiSummaryMetadata) {
+      sharedItem.aiSummaryMetadata = {
+        model: entry.aiSummaryMetadata.model || '',
+        isFullContent: !!entry.aiSummaryMetadata.isFullContent
+      };
+    }
+
+    if (comment) {
+      sharedItem.comment = comment;
+    }
+
+    // Create signature data
+    const signatureData = {
+      id: sharedItem.id,
+      title: sharedItem.title,
+      link: sharedItem.link,
+      publishDate: sharedItem.publishDate,
+      sharedAt: sharedItem.sharedAt,
+      comment: comment || '',
+      sharedBy: sharedItem.sharedBy.pub
+    };
+
+    // Sign the data
+    console.log('Signing data:', signatureData);
+    const signature = await SEA.sign(signatureData, JSON.parse(this.config.privateKey));
+    
+    // Store both the message and signature
+    sharedItem.signature = JSON.stringify({
+      m: JSON.stringify(signatureData),
+      s: signature
+    });
+    
+    console.log('Generated signature:', sharedItem.signature);
 
     return new Promise((resolve, reject) => {
       // Use a unique ID for each shared item
       const itemId = `${entry.id}_${Date.now()}`;
       
+      // Create a clean object for Gun by removing any undefined values
+      const cleanSharedItem = JSON.parse(JSON.stringify(sharedItem));
+      
       this.user
         .get('sharedItems')
         .get(itemId)
-        .put(sharedItem, (ack: any) => {
+        .put(cleanSharedItem, (ack: any) => {
           if (ack.err) {
             console.error('Error sharing item:', ack.err);
             reject(new Error(ack.err));
@@ -227,44 +365,68 @@ class GunService {
     console.log('Fetching shared items for user:', userPubKey);
 
     return new Promise((resolve, reject) => {
-      const items: any[] = [];
+      const items = new Map<string, any>(); // Use Map to handle duplicates
       let timeoutId: NodeJS.Timeout;
       let hasReceivedData = false;
+      let subscription: any;
 
-      const handleItem = (item: any, id: string) => {
+      const handleItem = async (item: any, id: string) => {
         if (item) {
           console.log('Received shared item:', { id, item });
           hasReceivedData = true;
-          items.push({ ...item, id });
+
+          // Resolve any Gun references
+          const resolvedItem = { ...item, _id: id };  // Include the Gun.js item ID
+          if (typeof item.sharedBy === 'object' && item.sharedBy['#']) {
+            // Wait for the reference to resolve
+            await new Promise<void>((resolve) => {
+              this.gun.get(item.sharedBy['#']).once((data: any) => {
+                resolvedItem.sharedBy = data;
+                resolve();
+              });
+            });
+          }
+
+          items.set(id, resolvedItem);
         }
       };
 
-      this.gun
+      // Create subscription
+      subscription = this.gun
         .user(userPubKey)
         .get('sharedItems')
         .map()
         .on(handleItem);
 
       // Set a timeout to resolve the promise after collecting items
-      timeoutId = setTimeout(() => {
+      timeoutId = setTimeout(async () => {
         console.log('Resolving with items:', items);
-        if (items.length > 0 || hasReceivedData) {
-          resolve(items.sort((a, b) => 
+        if (items.size > 0 || hasReceivedData) {
+          // Convert Map to array and sort
+          const sortedItems = Array.from(items.values()).sort((a, b) => 
             new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()
-          ));
+          );
+          resolve(sortedItems);
         } else {
           console.log('No items found or timeout reached');
           resolve([]);
         }
-      }, 2000); // Increased timeout to ensure we get the data
+        // Clean up subscription
+        if (subscription && subscription.off) {
+          subscription.off();
+        }
+      }, 2000);
 
-      // Clean up timeout if promise is rejected
+      // Clean up on timeout or error
       Promise.race([
         new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Timeout getting shared items')), 5000)
         )
       ]).catch(error => {
         clearTimeout(timeoutId);
+        if (subscription && subscription.off) {
+          subscription.off();
+        }
         reject(error);
       });
     });
@@ -345,6 +507,27 @@ class GunService {
 
   getFollowedUsers(): string[] {
     return Array.from(this.followedUsers);
+  }
+
+  async unshareItem(itemId: string) {
+    if (!this.gun || !this.user) {
+      throw new Error('Gun not initialized or user not authenticated');
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      this.user
+        .get('sharedItems')
+        .get(itemId)
+        .put(null, (ack: any) => {
+          if (ack.err) {
+            console.error('Error unsharing item:', ack.err);
+            reject(new Error(ack.err));
+          } else {
+            console.log('Item unshared successfully:', itemId);
+            resolve();
+          }
+        });
+    });
   }
 }
 
