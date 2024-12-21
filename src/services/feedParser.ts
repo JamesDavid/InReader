@@ -359,11 +359,11 @@ export async function refreshFeeds(feeds: Feed[]) {
           .filter((entry): entry is FeedEntry => entry !== undefined)
           .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
 
-        // Process all entries for this feed in parallel
+        // Process all entries for this feed in parallel using reprocessEntry
         console.log('Processing', sortedEntries.length, 'entries for feed:', feed.title);
         await Promise.all(
           sortedEntries.map(entry => 
-            processEntry(entry.id!).catch(error => {
+            reprocessEntry(entry.id!).catch(error => {
               console.error('Error processing entry:', error);
             })
           )
