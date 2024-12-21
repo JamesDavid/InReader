@@ -47,14 +47,22 @@ const fetchOllama = async (url: string, options: RequestInit = {}) => {
 
     // For internal URLs, we'll allow self-signed certificates
     if (isInternalUrl(url)) {
+      const headers: Record<string, string> = {
+        'Accept': 'application/json'
+      };
+
+      // Only add Content-Type for requests with a body
+      if (options.method && options.method !== 'GET') {
+        headers['Content-Type'] = 'application/json';
+      }
+
       options = {
         ...options,
         mode: 'cors',
         credentials: 'include',
         headers: {
           ...options.headers,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
+          ...headers
         }
       };
     }
