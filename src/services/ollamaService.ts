@@ -63,11 +63,9 @@ const fetchOllama = async (url: string, options: RequestInit = {}) => {
       hostname: finalUrl.hostname
     });
 
+    // Basic headers for all requests
     const headers: Record<string, string> = {
-      'Accept': 'application/json',
-      'Origin': window.location.origin,
-      'Access-Control-Request-Method': options.method || 'GET',
-      'Access-Control-Request-Headers': 'content-type'
+      'Accept': 'application/json'
     };
 
     // Only add Content-Type for requests with a body
@@ -75,13 +73,34 @@ const fetchOllama = async (url: string, options: RequestInit = {}) => {
       headers['Content-Type'] = 'application/json';
     }
 
+    // First, perform a preflight check
+    try {
+      const preflightResponse = await fetch(finalUrl.toString(), {
+        method: 'OPTIONS',
+        mode: 'cors',
+        headers: {
+          'Origin': window.location.origin,
+          'Access-Control-Request-Method': options.method || 'GET',
+          'Access-Control-Request-Headers': 'content-type'
+        }
+      });
+      
+      console.log('Preflight response:', {
+        status: preflightResponse.status,
+        headers: Object.fromEntries(preflightResponse.headers.entries())
+      });
+    } catch (preflightError) {
+      console.warn('Preflight check failed:', preflightError);
+      // Continue with the main request even if preflight fails
+    }
+
+    // Main request
     const fetchOptions: RequestInit = {
       ...options,
       mode: 'cors',
-      credentials: 'omit', // Changed from 'include' to 'omit' since we don't need cookies
       headers: {
-        ...options.headers,
-        ...headers
+        ...headers,
+        ...options.headers
       }
     };
     
