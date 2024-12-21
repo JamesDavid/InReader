@@ -40,34 +40,39 @@ const isInternalUrl = (url: string) => {
 // Helper function to handle Ollama requests with protocol check
 const fetchOllama = async (url: string, options: RequestInit = {}) => {
   try {
-    // In production (HTTPS), require HTTPS endpoints
-    if (!isDevelopment() && url.startsWith('http://')) {
-      throw new Error('Insecure HTTP endpoint not allowed in production. Please use HTTPS.');
-    }
-
-    // For internal URLs, we'll allow self-signed certificates
-    if (isInternalUrl(url)) {
-      const headers: Record<string, string> = {
-        'Accept': 'application/json'
-      };
-
-      // Only add Content-Type for requests with a body
-      if (options.method && options.method !== 'GET') {
-        headers['Content-Type'] = 'application/json';
-      }
-
-      options = {
-        ...options,
-        mode: 'cors',
-        credentials: 'include',
-        headers: {
-          ...options.headers,
-          ...headers
-        }
-      };
-    }
+    const isDevMode = isDevelopment();
+    const parsedUrl = new URL(url);
     
-    const response = await fetch(url, options);
+    // In development, use HTTP port 80
+    // In production (GitHub Pages), use HTTPS port 443
+    if (isDevMode) {
+      parsedUrl.protocol = 'http:';
+      parsedUrl.port = '80';
+    } else {
+      parsedUrl.protocol = 'https:';
+      parsedUrl.port = '443';
+    }
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/json'
+    };
+
+    // Only add Content-Type for requests with a body
+    if (options.method && options.method !== 'GET') {
+      headers['Content-Type'] = 'application/json';
+    }
+
+    const fetchOptions: RequestInit = {
+      ...options,
+      mode: 'cors',
+      credentials: 'include',
+      headers: {
+        ...options.headers,
+        ...headers
+      }
+    };
+    
+    const response = await fetch(parsedUrl.toString(), fetchOptions);
     if (!response.ok) throw new Error('Failed to connect to Ollama server');
     return response;
   } catch (error) {
