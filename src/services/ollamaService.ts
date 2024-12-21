@@ -54,13 +54,21 @@ const fetchOllama = async (url: string, options: RequestInit = {}) => {
     }
 
     const headers: Record<string, string> = {
-      'Accept': 'application/json'
+      'Accept': 'application/json',
+      'Origin': window.location.origin
     };
 
     // Only add Content-Type for requests with a body
     if (options.method && options.method !== 'GET') {
       headers['Content-Type'] = 'application/json';
     }
+
+    console.log('Fetching Ollama:', {
+      url: parsedUrl.toString(),
+      isDevMode,
+      origin: window.location.origin,
+      headers
+    });
 
     const fetchOptions: RequestInit = {
       ...options,
@@ -73,7 +81,14 @@ const fetchOllama = async (url: string, options: RequestInit = {}) => {
     };
     
     const response = await fetch(parsedUrl.toString(), fetchOptions);
-    if (!response.ok) throw new Error('Failed to connect to Ollama server');
+    if (!response.ok) {
+      console.error('Ollama response error:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries())
+      });
+      throw new Error('Failed to connect to Ollama server');
+    }
     return response;
   } catch (error) {
     console.error('Ollama request failed:', error);
