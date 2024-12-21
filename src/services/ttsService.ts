@@ -22,9 +22,6 @@ class TTSService {
   private audioContext: AudioContext | null = null;
 
   constructor() {
-    // Initialize AudioContext
-    this.audioContext = new AudioContext();
-
     // Load saved preferences
     const savedVoice = localStorage.getItem('selectedVoice');
     const savedRate = localStorage.getItem('speechRate');
@@ -43,6 +40,13 @@ class TTSService {
 
     loadVoice();
     window.speechSynthesis.onvoiceschanged = loadVoice;
+  }
+
+  private initAudioContext() {
+    if (!this.audioContext) {
+      this.audioContext = new AudioContext();
+    }
+    return this.audioContext;
   }
 
   private cleanTextForSpeech(text: string): string {
@@ -134,55 +138,57 @@ class TTSService {
   }
 
   private playAddToQueueSound() {
-    if (!this.audioContext) return;
+    const ctx = this.initAudioContext();
+    if (!ctx) return;
     
     // Create oscillator and gain nodes
-    const oscillator = this.audioContext.createOscillator();
-    const gainNode = this.audioContext.createGain();
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
     
     // Set up oscillator
     oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(880, this.audioContext.currentTime); // A5 note
-    oscillator.frequency.setValueAtTime(1108.73, this.audioContext.currentTime + 0.1); // C#6 note
+    oscillator.frequency.setValueAtTime(880, ctx.currentTime); // A5 note
+    oscillator.frequency.setValueAtTime(1108.73, ctx.currentTime + 0.1); // C#6 note
     
     // Set up gain (volume envelope)
-    gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
-    gainNode.gain.linearRampToValueAtTime(0.2, this.audioContext.currentTime + 0.02);
-    gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + 0.2);
+    gainNode.gain.setValueAtTime(0, ctx.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+    gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
     
     // Connect nodes
     oscillator.connect(gainNode);
-    gainNode.connect(this.audioContext.destination);
+    gainNode.connect(ctx.destination);
     
     // Play sound
     oscillator.start();
-    oscillator.stop(this.audioContext.currentTime + 0.2);
+    oscillator.stop(ctx.currentTime + 0.2);
   }
 
   private playDuplicateSound() {
-    if (!this.audioContext) return;
+    const ctx = this.initAudioContext();
+    if (!ctx) return;
     
     // Create oscillator and gain nodes
-    const oscillator = this.audioContext.createOscillator();
-    const gainNode = this.audioContext.createGain();
+    const oscillator = ctx.createOscillator();
+    const gainNode = ctx.createGain();
     
     // Set up oscillator for a descending tone (sad sound)
     oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(440, this.audioContext.currentTime); // A4 note
-    oscillator.frequency.linearRampToValueAtTime(330, this.audioContext.currentTime + 0.2); // E4 note
+    oscillator.frequency.setValueAtTime(440, ctx.currentTime); // A4 note
+    oscillator.frequency.linearRampToValueAtTime(330, ctx.currentTime + 0.2); // E4 note
     
     // Set up gain (volume envelope)
-    gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
-    gainNode.gain.linearRampToValueAtTime(0.2, this.audioContext.currentTime + 0.02);
-    gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + 0.3);
+    gainNode.gain.setValueAtTime(0, ctx.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+    gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
     
     // Connect nodes
     oscillator.connect(gainNode);
-    gainNode.connect(this.audioContext.destination);
+    gainNode.connect(ctx.destination);
     
     // Play sound
     oscillator.start();
-    oscillator.stop(this.audioContext.currentTime + 0.3);
+    oscillator.stop(ctx.currentTime + 0.3);
   }
 
   async addToQueue(entry: { id: number; title: string; content_fullArticle?: string; content_rssAbstract?: string; content_aiSummary?: string; feedTitle?: string }) {

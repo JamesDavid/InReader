@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import FeedList from './components/FeedList';
 import SearchResults from './components/SearchResults';
@@ -7,7 +7,7 @@ import GunFeedList from './components/GunFeedList';
 
 function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<FeedList />} />
@@ -20,7 +20,7 @@ function App() {
           <Route path="gun/:pubKey" element={<GunFeedList />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 
