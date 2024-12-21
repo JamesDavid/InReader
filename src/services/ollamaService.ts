@@ -53,9 +53,21 @@ const fetchOllama = async (url: string, options: RequestInit = {}) => {
       parsedUrl.port = '443';
     }
 
+    // Ensure the URL is properly formatted
+    const finalUrl = new URL(parsedUrl.toString());
+    console.log('Fetching Ollama:', {
+      originalUrl: url,
+      finalUrl: finalUrl.toString(),
+      isDevMode,
+      origin: window.location.origin,
+      hostname: finalUrl.hostname
+    });
+
     const headers: Record<string, string> = {
       'Accept': 'application/json',
-      'Origin': window.location.origin
+      'Origin': window.location.origin,
+      'Access-Control-Request-Method': options.method || 'GET',
+      'Access-Control-Request-Headers': 'content-type'
     };
 
     // Only add Content-Type for requests with a body
@@ -63,35 +75,33 @@ const fetchOllama = async (url: string, options: RequestInit = {}) => {
       headers['Content-Type'] = 'application/json';
     }
 
-    console.log('Fetching Ollama:', {
-      url: parsedUrl.toString(),
-      isDevMode,
-      origin: window.location.origin,
-      headers
-    });
-
     const fetchOptions: RequestInit = {
       ...options,
       mode: 'cors',
-      credentials: 'include',
+      credentials: 'omit', // Changed from 'include' to 'omit' since we don't need cookies
       headers: {
         ...options.headers,
         ...headers
       }
     };
     
-    const response = await fetch(parsedUrl.toString(), fetchOptions);
+    const response = await fetch(finalUrl.toString(), fetchOptions);
     if (!response.ok) {
       console.error('Ollama response error:', {
         status: response.status,
         statusText: response.statusText,
         headers: Object.fromEntries(response.headers.entries())
       });
-      throw new Error('Failed to connect to Ollama server');
+      throw new Error(`Failed to connect to Ollama server: ${response.status} ${response.statusText}`);
     }
     return response;
   } catch (error) {
-    console.error('Ollama request failed:', error);
+    console.error('Ollama request failed:', {
+      error,
+      url,
+      isDevMode: isDevelopment(),
+      origin: window.location.origin
+    });
     throw error;
   }
 };
