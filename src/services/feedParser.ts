@@ -4,7 +4,7 @@ import { fetchArticleContent } from './articleService';
 import { generateSummary, loadOllamaConfig } from './ollamaService';
 import TurndownService from 'turndown';
 
-const API_URL = 'http://localhost:3000/api';
+const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
 
 // Create a shared TurndownService instance with the same config as articleService
 const turndownService = new TurndownService({
@@ -161,23 +161,79 @@ async function processEntry(entryId: number) {
   }
 }
 
+// Helper function to parse XML text to DOM
+function parseXML(xmlText: string): Document {
+  const parser = new DOMParser();
+  return parser.parseFromString(xmlText, 'text/xml');
+}
+
+// Helper function to get text content of an element safely
+function getElementText(element: Element | null, defaultValue: string = ''): string {
+  return element?.textContent?.trim() || defaultValue;
+}
+
 // Parse feed and return parsed items
 async function parseFeed(url: string): Promise<ParsedFeed> {
-  const response = await fetch(`${API_URL}/parse-feed`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ url }),
-  });
+  try {
+    // Use CORS proxy to fetch the feed
+    const proxyUrl = `${CORS_PROXY}${encodeURIComponent(url)}`;
+    const response = await fetch(proxyUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const xmlText = await response.text();
+    const xmlDoc = parseXML(xmlText);
 
-  if (!response.ok) {
-    const error = await response.text();
-    console.error('Server error:', error);
+    // Check for parsing errors
+    const parseError = xmlDoc.querySelector('parsererror');
+    if (parseError) {
+      throw new Error('Failed to parse XML feed');
+    }
+
+    // Try to determine feed type (RSS or Atom)
+    const isAtom = Boolean(xmlDoc.querySelector('feed'));
+    
+    let feedTitle = '';
+    let items: ParsedFeedItem[] = [];
+
+    if (isAtom) {
+      // Parse Atom feed
+      feedTitle = getElementText(xmlDoc.querySelector('feed > title'), 'Untitled Feed');
+      const entries = xmlDoc.querySelectorAll('entry');
+      
+      items = Array.from(entries).map(entry => ({
+        title: getElementText(entry.querySelector('title'), 'Untitled'),
+        content: getElementText(entry.querySelector('content')) || getElementText(entry.querySelector('summary'), ''),
+        link: entry.querySelector('link[rel="alternate"]')?.getAttribute('href') || 
+              entry.querySelector('link')?.getAttribute('href') || '',
+        pubDate: entry.querySelector('published')?.textContent || 
+                entry.querySelector('updated')?.textContent || 
+                new Date().toISOString()
+      }));
+    } else {
+      // Parse RSS feed
+      feedTitle = getElementText(xmlDoc.querySelector('channel > title'), 'Untitled Feed');
+      const entries = xmlDoc.querySelectorAll('item');
+      
+      items = Array.from(entries).map(item => ({
+        title: getElementText(item.querySelector('title'), 'Untitled'),
+        content: getElementText(item.querySelector('content\\:encoded')) || 
+                getElementText(item.querySelector('description'), ''),
+        link: getElementText(item.querySelector('link'), ''),
+        pubDate: getElementText(item.querySelector('pubDate')) || 
+                getElementText(item.querySelector('dc\\:date')) || 
+                new Date().toISOString()
+      }));
+    }
+
+    return {
+      title: feedTitle,
+      items: items.filter(item => item.link && item.title)
+    };
+  } catch (error) {
+    console.error('Feed parsing error:', error);
     throw new Error('Failed to fetch feed');
   }
-
-  return response.json();
 }
 
 // Add new entries to database and process them
