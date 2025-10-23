@@ -11,6 +11,7 @@ interface QueuedArticle {
 
 class TTSService {
   private queue: QueuedArticle[] = [];
+  private history: QueuedArticle[] = [];
   private isPlaying: boolean = false;
   private isPaused: boolean = false;
   private currentUtterance: SpeechSynthesisUtterance | null = null;
@@ -24,6 +25,17 @@ class TTSService {
   constructor() {
     // Initialize AudioContext
     this.audioContext = new AudioContext();
+
+    // Resume AudioContext on user interaction (required by modern browsers)
+    const resumeAudioContext = () => {
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        this.audioContext.resume();
+      }
+    };
+
+    // Try to resume on various user interactions
+    document.addEventListener('click', resumeAudioContext, { once: true });
+    document.addEventListener('keydown', resumeAudioContext, { once: true });
 
     // Load saved preferences
     const savedVoice = localStorage.getItem('selectedVoice');
@@ -43,6 +55,40 @@ class TTSService {
 
     loadVoice();
     window.speechSynthesis.onvoiceschanged = loadVoice;
+  }
+
+  private handleArticleCompletion(isError: boolean = false) {
+    // Move current article to history if it completed successfully
+    if (!isError && this.currentArticle) {
+      this.history.push(this.currentArticle);
+    }
+
+    // Remove the current article from the queue
+    if (this.currentArticleIndex >= 0 && this.currentArticleIndex < this.queue.length) {
+      this.queue.splice(this.currentArticleIndex, 1);
+    }
+
+    // Adjust current index and play next if available
+    if (this.queue.length > 0) {
+      // If we were at the end, go back to start
+      if (this.currentArticleIndex >= this.queue.length) {
+        this.currentArticleIndex = 0;
+      }
+      // Otherwise keep the same index (next article has shifted down)
+      this.playNext();
+    } else {
+      // No more articles in queue
+      this.resetPlaybackState();
+    }
+  }
+
+  private resetPlaybackState() {
+    this.isPlaying = false;
+    this.isPaused = false;
+    this.currentUtterance = null;
+    this.currentArticle = null;
+    this.currentArticleIndex = -1;
+    this.notifyListeners();
   }
 
   private cleanTextForSpeech(text: string): string {
@@ -280,51 +326,15 @@ class TTSService {
     content.onend = async () => {
       // Mark article as listened
       await markAsListened(article.id);
-
-      // Remove the current article from the queue
-      this.queue = this.queue.filter((_, index) => index !== this.currentArticleIndex);
-
-      // Adjust current index if needed
-      if (this.queue.length > 0) {
-        // If we were at the end, go back to start
-        if (this.currentArticleIndex >= this.queue.length) {
-          this.currentArticleIndex = 0;
-        }
-        // Otherwise keep the same index (next article has shifted down)
-        this.playNext();
-      } else {
-        // No more articles in queue
-        this.isPlaying = false;
-        this.isPaused = false;
-        this.currentUtterance = null;
-        this.currentArticle = null;
-        this.currentArticleIndex = -1;
-        this.notifyListeners();
-      }
+      // Handle completion and move to next
+      this.handleArticleCompletion(false);
     };
 
     // Handle errors
     content.onerror = (event) => {
       console.error('TTS Error:', event);
-      // Remove the problematic article from queue
-      this.queue = this.queue.filter((_, index) => index !== this.currentArticleIndex);
-      
-      if (this.queue.length > 0) {
-        // If we were at the end, go back to start
-        if (this.currentArticleIndex >= this.queue.length) {
-          this.currentArticleIndex = 0;
-        }
-        // Otherwise keep the same index (next article has shifted down)
-        this.playNext();
-      } else {
-        // No more articles in queue
-        this.isPlaying = false;
-        this.isPaused = false;
-        this.currentUtterance = null;
-        this.currentArticle = null;
-        this.currentArticleIndex = -1;
-        this.notifyListeners();
-      }
+      // Handle error and move to next
+      this.handleArticleCompletion(true);
     };
 
     // Play the sequence
@@ -370,36 +380,48 @@ class TTSService {
   }
 
   next() {
-    if (this.currentArticleIndex < this.queue.length - 1) {
-      // Remove the current article from the queue
-      if (this.currentArticleIndex >= 0) {
-        this.queue = this.queue.filter((_, index) => index !== this.currentArticleIndex);
-        // Don't increment the index since we removed the current item
-        // and the next item has shifted down
+    // Stop current speech
+    window.speechSynthesis.cancel();
+
+    // Remove the current article from the queue (don't add to history on skip)
+    if (this.currentArticleIndex >= 0 && this.currentArticleIndex < this.queue.length) {
+      this.queue.splice(this.currentArticleIndex, 1);
+    }
+
+    // Check if there are more articles in the queue
+    if (this.queue.length > 0) {
+      // If we removed the last item, go back to start
+      if (this.currentArticleIndex >= this.queue.length) {
+        this.currentArticleIndex = 0;
       }
-      
-      // Stop current speech
-      window.speechSynthesis.cancel();
-      
-      // Start playing the next item (which is now at the current index)
-      const nextArticle = this.queue[this.currentArticleIndex];
-      if (nextArticle) {
-        this.playArticle(nextArticle);
-      } else {
-        // If there's no next article, stop
-        this.stop();
-      }
+      // Play the next article (which is now at current index after removal)
+      this.playNext();
     } else {
-      // If we're at the end, stop and clear the queue
+      // No more articles, stop playback
       this.clearQueue();
     }
   }
 
   previous() {
-    if (this.currentArticleIndex > 0) {
-      this.currentArticleIndex--;
-      this.stop();
-      this.playArticle(this.queue[this.currentArticleIndex]);
+    // Can only go to previous if there's history
+    if (this.history.length > 0) {
+      // Stop current speech
+      window.speechSynthesis.cancel();
+
+      // Get the last article from history
+      const previousArticle = this.history.pop()!;
+
+      // Add current article back to the front of the queue if it exists
+      if (this.currentArticle) {
+        this.queue.unshift(this.currentArticle);
+      }
+
+      // Add the previous article to the front of the queue
+      this.queue.unshift(previousArticle);
+
+      // Reset index and play from the beginning
+      this.currentArticleIndex = 0;
+      this.playNext();
     }
   }
 
@@ -415,9 +437,20 @@ class TTSService {
 
   clearQueue() {
     this.queue = [];
+    this.history = [];
     this.stop();
     this.currentArticleIndex = -1;
     this.notifyListeners();
+  }
+
+  // Cleanup method for destroying the service
+  destroy() {
+    this.clearQueue();
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+    this.listeners.clear();
   }
 
   getQueueLength(): number {

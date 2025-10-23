@@ -31,50 +31,19 @@ export const initializeQueue = (concurrency: number = 2) => {
   }
   queue = new PQueue({ concurrency });
 
+  // Helper function to log queue state
+  const logQueueState = (eventName: string) => {
+    console.log(`Queue event - ${eventName}. Queue size:`, queue?.size);
+    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
+  };
+
   // Set up queue event listeners
-  queue.on('active', () => {
-    console.log('Queue event - active. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
-  });
-
-  queue.on('idle', () => {
-    console.log('Queue event - idle. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
-  });
-
-  queue.on('add', () => {
-    console.log('Queue event - add. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
-  });
-
-  queue.on('next', () => {
-    console.log('Queue event - next. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
-  });
-
-  queue.on('completed', () => {
-    console.log('Queue event - completed. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
-  });
-
-  queue.on('error', () => {
-    console.log('Queue event - error. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
-  });
-};
-
-// Helper function for safe object cloning without circular references
-const safeClone = <T extends object>(obj: T): T => {
-  const seen = new WeakSet();
-  return JSON.parse(JSON.stringify(obj, (key, value) => {
-    if (typeof value === 'object' && value !== null) {
-      if (seen.has(value)) {
-        return undefined; // Remove circular reference
-      }
-      seen.add(value);
-    }
-    return value;
-  }));
+  queue.on('active', () => logQueueState('active'));
+  queue.on('idle', () => logQueueState('idle'));
+  queue.on('add', () => logQueueState('add'));
+  queue.on('next', () => logQueueState('next'));
+  queue.on('completed', () => logQueueState('completed'));
+  queue.on('error', () => logQueueState('error'));
 };
 
 // Helper function to create a minimal request object
@@ -173,26 +142,36 @@ export const enqueueRequest = async <T>(
       try {
         const response = await request();
         if (queuedRequest.entryId) {
-          await updateRequestStatus(queuedRequest.entryId, 'success');
+          try {
+            await updateRequestStatus(queuedRequest.entryId, 'success');
+          } catch (dbError) {
+            console.error('Failed to update request status to success:', dbError);
+            // Don't fail the whole request if DB update fails
+          }
         }
         // Remove from processing requests
-        processingRequests = processingRequests.filter(r => 
+        processingRequests = processingRequests.filter(r =>
           !(r.entryId === queuedRequest.entryId && r.feedId === queuedRequest.feedId)
         );
-        
+
         window.dispatchEvent(new CustomEvent('entryProcessingComplete', {
           detail: { entryId: queuedRequest.entryId }
         }));
-        
+
         return response as T;
       } catch (error) {
         if (queuedRequest.entryId) {
-          const errorInfo = {
-            message: error instanceof Error ? error.message : 'Unknown error',
-            code: (error as any).code,
-            details: (error as any).details
-          };
-          await updateRequestStatus(queuedRequest.entryId, 'failed', errorInfo);
+          try {
+            const errorInfo = {
+              message: error instanceof Error ? error.message : 'Unknown error',
+              code: (error as any).code,
+              details: (error as any).details
+            };
+            await updateRequestStatus(queuedRequest.entryId, 'failed', errorInfo);
+          } catch (dbError) {
+            console.error('Failed to update request status to failed:', dbError);
+            // Continue with error handling even if DB update fails
+          }
         }
         // Create a minimal failed request object
         const failedRequest = createMinimalRequest({
@@ -201,10 +180,10 @@ export const enqueueRequest = async <T>(
           error: error instanceof Error ? error.message : 'Unknown error'
         });
         failedRequests.push(failedRequest);
-        processingRequests = processingRequests.filter(r => 
+        processingRequests = processingRequests.filter(r =>
           !(r.entryId === queuedRequest.entryId && r.feedId === queuedRequest.feedId)
         );
-        
+
         window.dispatchEvent(new CustomEvent('queueChanged'));
         throw error;
       }

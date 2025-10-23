@@ -53,7 +53,6 @@ export const saveOllamaConfig = (config: OllamaConfig): void => {
 
 export const generateSummary = async (
   content: string,
-  url: string,
   config: OllamaConfig,
   onToken?: (token: string) => void,
   entryId?: number
@@ -130,7 +129,6 @@ export const generateSummaryWithFallback = async (
   // Generate the summary
   const summary = await generateSummary(
     contentToSummarize,
-    '', // URL is not needed for summarization
     config,
     onToken,
     entry.id

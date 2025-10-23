@@ -123,7 +123,6 @@ async function processEntry(entryId: number) {
     console.log('Generating summary for:', entry.title, 'using model:', config.summaryModel);
     const summary = await generateSummary(
       articleContent.content,
-      entry.link,
       config,
       undefined,
       entryId
