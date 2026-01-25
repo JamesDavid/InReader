@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Outlet, useOutletContext, useNavigate } from 'react-router-dom';
+import { Outlet, useOutletContext, useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import SearchModal from './SearchModal';
@@ -103,6 +103,7 @@ const Layout: React.FC = () => {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Create a ref to store the focusSearch callback from Header
   const [focusSearchCallback, setFocusSearchCallback] = useState<(() => void) | null>(null);
@@ -752,6 +753,16 @@ const Layout: React.FC = () => {
     localStorage.setItem('showUnreadOnly', JSON.stringify(showUnreadOnly));
   }, [showUnreadOnly]);
 
+  // Auto-close mobile sidebar on navigation
+  const location = useLocation();
+  useEffect(() => {
+    setIsMobileSidebarOpen(false);
+  }, [location.pathname]);
+
+  const handleToggleMobileSidebar = useCallback(() => {
+    setIsMobileSidebarOpen(prev => !prev);
+  }, []);
+
   const handleFocusChange = (focused: boolean) => {
     setSidebarFocused(!focused);
   };
@@ -780,7 +791,7 @@ const Layout: React.FC = () => {
 
   return (
     <div className={`h-screen flex flex-col ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
-      <Header 
+      <Header
         isDarkMode={isDarkMode}
         onDarkModeToggle={() => {
           setIsDarkMode(!isDarkMode);
@@ -794,10 +805,27 @@ const Layout: React.FC = () => {
         onRegisterFocusSearch={handleFocusSearch}
         showAddFeedModal={showAddFeedModal}
         onCloseAddFeedModal={() => setShowAddFeedModal(false)}
+        onToggleMobileSidebar={handleToggleMobileSidebar}
+        isMobileSidebarOpen={isMobileSidebarOpen}
       />
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar 
-          className={`w-sidebar flex-shrink-0 border-r ${isDarkMode ? 'border-gray-700' : 'border-reader-border'}`}
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Mobile sidebar overlay */}
+        {isMobileSidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden"
+            onClick={() => setIsMobileSidebarOpen(false)}
+          />
+        )}
+        <Sidebar
+          className={`
+            ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-reader-border'}
+            w-sidebar flex-shrink-0 border-r
+            fixed md:relative inset-y-0 left-0 z-30
+            transform transition-transform duration-300 ease-in-out
+            ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+            md:translate-x-0
+            top-14 md:top-0 h-[calc(100vh-3.5rem)] md:h-auto
+          `}
           isFocused={sidebarFocused}
           onFocusChange={setSidebarFocused}
           isDarkMode={isDarkMode}
@@ -808,7 +836,7 @@ const Layout: React.FC = () => {
           onSelectedIndexChange={setSelectedSidebarIndex}
           onOpenSearch={handleOpenSearch}
         />
-        <main 
+        <main
           className={`flex-grow overflow-auto ${!sidebarFocused ? 'ring-2 ring-reader-blue ring-opacity-50' : ''}`}
           onClick={() => sidebarFocused && handleFocusChange(true)}
         >

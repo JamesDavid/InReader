@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { db, type ChatMessage } from '../services/db';
-import { loadOllamaConfig } from '../services/ollamaService';
+import { loadOllamaConfig, shouldUseProxy, proxyFetch } from '../services/ollamaService';
 
 interface ChatModalProps {
   isOpen: boolean;
@@ -292,15 +292,23 @@ const ChatModal: React.FC<ChatModalProps> = ({
       ];
 
       // Send request to Ollama
-      const response = await fetch(`${config.serverUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: config.chatModel,
-          messages: apiMessages,
-          stream: true
-        })
-      });
+      const targetUrl = `${config.serverUrl}/api/chat`;
+      const requestBody = {
+        model: config.chatModel,
+        messages: apiMessages,
+        stream: true
+      };
+
+      let response: Response;
+      if (shouldUseProxy(config.serverUrl)) {
+        response = await proxyFetch(targetUrl, 'POST', requestBody);
+      } else {
+        response = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -604,15 +612,23 @@ const ChatModal: React.FC<ChatModalProps> = ({
                             }))
                         ];
 
-                        const response = await fetch(`${config.serverUrl}/api/chat`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            model: config.chatModel,
-                            messages: apiMessages,
-                            stream: true
-                          })
-                        });
+                        const targetUrl = `${config.serverUrl}/api/chat`;
+                        const requestBody = {
+                          model: config.chatModel,
+                          messages: apiMessages,
+                          stream: true
+                        };
+
+                        let response: Response;
+                        if (shouldUseProxy(config.serverUrl)) {
+                          response = await proxyFetch(targetUrl, 'POST', requestBody);
+                        } else {
+                          response = await fetch(targetUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(requestBody)
+                          });
+                        }
 
                         if (!response.ok) {
                           const errorText = await response.text();

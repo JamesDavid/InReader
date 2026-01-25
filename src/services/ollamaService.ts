@@ -16,9 +16,45 @@ export interface OllamaConfig {
 import { enqueueRequest, initializeQueue } from './requestQueueService';
 import { fetchArticleContent } from './articleService';
 
+// Check if we need to use the proxy (when served over HTTPS or accessing non-localhost)
+export const shouldUseProxy = (serverUrl: string): boolean => {
+  // Always use proxy when app is served over HTTPS (mixed content prevention)
+  if (window.location.protocol === 'https:') {
+    return true;
+  }
+  // Use proxy for non-localhost URLs when running locally
+  try {
+    const url = new URL(serverUrl);
+    return url.hostname !== 'localhost' && url.hostname !== '127.0.0.1';
+  } catch {
+    return false;
+  }
+};
+
+// Make a request through the proxy
+export const proxyFetch = async (
+  targetUrl: string,
+  method: string = 'GET',
+  body?: object
+): Promise<Response> => {
+  return fetch('/api/ollama/proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetUrl, method, body })
+  });
+};
+
 export const testConnection = async (serverUrl: string): Promise<boolean> => {
   try {
-    const response = await fetch(`${serverUrl}/api/tags`);
+    const targetUrl = `${serverUrl}/api/tags`;
+    let response: Response;
+
+    if (shouldUseProxy(serverUrl)) {
+      response = await proxyFetch(targetUrl);
+    } else {
+      response = await fetch(targetUrl);
+    }
+
     if (!response.ok) throw new Error('Failed to connect to Ollama server');
     return true;
   } catch (error) {
@@ -29,7 +65,15 @@ export const testConnection = async (serverUrl: string): Promise<boolean> => {
 
 export const getAvailableModels = async (serverUrl: string): Promise<OllamaModel[]> => {
   try {
-    const response = await fetch(`${serverUrl}/api/tags`);
+    const targetUrl = `${serverUrl}/api/tags`;
+    let response: Response;
+
+    if (shouldUseProxy(serverUrl)) {
+      response = await proxyFetch(targetUrl);
+    } else {
+      response = await fetch(targetUrl);
+    }
+
     if (!response.ok) throw new Error('Failed to fetch models');
     const data = await response.json();
     return data.models || [];
@@ -65,18 +109,33 @@ export const generateSummary = async (
         requestAnimationFrame(() => onToken(token));
       } : undefined;
 
-      const response = await fetch(`${config.serverUrl}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: config.summaryModel,
-          prompt: content,
-          system: config.summarySystemPrompt,
-          stream: Boolean(safeOnToken)
-        })
-      });
+      const targetUrl = `${config.serverUrl}/api/generate`;
+      const requestBody = {
+        model: config.summaryModel,
+        prompt: content,
+        system: config.summarySystemPrompt,
+        stream: Boolean(safeOnToken)
+      };
 
-      if (!response.ok) throw new Error('Failed to generate summary');
+      let response: Response;
+      const useProxy = shouldUseProxy(config.serverUrl);
+      console.log('generateSummary: using proxy:', useProxy, 'stream:', requestBody.stream);
+
+      if (useProxy) {
+        response = await proxyFetch(targetUrl, 'POST', requestBody);
+      } else {
+        response = await fetch(targetUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Ollama response not ok:', response.status, errorText);
+        throw new Error(`Failed to generate summary: ${errorText}`);
+      }
 
       if (safeOnToken && response.body) {
         const reader = response.body.getReader();
@@ -111,6 +170,11 @@ export const generateSummary = async (
         return summary;
       } else {
         const data = await response.json();
+        console.log('generateSummary: received non-streaming response, has response:', !!data.response, 'length:', data.response?.length);
+        if (data.error) {
+          console.error('Ollama returned error:', data.error);
+          throw new Error(data.error);
+        }
         return data.response || '';
       }
     } catch (error) {

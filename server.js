@@ -5,6 +5,9 @@ import { extract } from '@extractus/article-extractor';
 
 const app = express();
 
+// Trust proxy - needed when running behind nginx to get real client IPs
+app.set('trust proxy', true);
+
 // Security: Configure CORS with specific options
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
@@ -22,14 +25,20 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '10kb' }));
+// Increase limit for Ollama proxy requests which include full article content
+app.use(express.json({ limit: '5mb' }));
 
 // Simple in-memory rate limiting
 const rateLimitMap = new Map();
 const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 60; // 60 requests per minute
+const RATE_LIMIT_MAX_REQUESTS = 120; // 120 requests per minute per client
 
 function rateLimit(req, res, next) {
+  // Skip rate limiting for Ollama proxy (has its own natural throttling)
+  if (req.path.startsWith('/api/ollama')) {
+    return next();
+  }
+
   const ip = req.ip || req.connection.remoteAddress || 'unknown';
   const now = Date.now();
 
@@ -166,6 +175,100 @@ app.post('/api/fetch-article', async (req, res) => {
   } catch (error) {
     console.error('Error fetching article:', error);
     res.status(500).json({ error: 'Failed to fetch article content' });
+  }
+});
+
+// Ollama proxy validation - allows local network IPs for Ollama
+function isValidOllamaUrl(urlString) {
+  if (!urlString || typeof urlString !== 'string') {
+    return { valid: false, error: 'URL is required and must be a string' };
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    return { valid: false, error: 'Invalid URL format' };
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    return { valid: false, error: 'Only HTTP and HTTPS URLs are allowed' };
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+
+  // Block cloud metadata endpoints
+  const blockedHosts = ['metadata.google.internal', 'metadata.goog'];
+  if (blockedHosts.includes(hostname)) {
+    return { valid: false, error: 'Metadata endpoints are not allowed' };
+  }
+
+  // Allow localhost, private IPs for Ollama (user's LAN server)
+  return { valid: true };
+}
+
+// Ollama proxy endpoint - proxies requests to user's Ollama server
+app.post('/api/ollama/proxy', async (req, res) => {
+  try {
+    const { targetUrl, method = 'GET', body } = req.body;
+
+    console.log('Ollama proxy request:', { targetUrl, method, stream: body?.stream });
+
+    const validation = isValidOllamaUrl(targetUrl);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error });
+    }
+
+    const fetchOptions = {
+      method,
+      headers: { 'Content-Type': 'application/json' }
+    };
+
+    if (body && method !== 'GET') {
+      fetchOptions.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(targetUrl, fetchOptions);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Ollama server error:', response.status, errorText);
+      return res.status(response.status).json({ error: `Ollama error: ${errorText}` });
+    }
+
+    // Check if this is a streaming response
+    if (body?.stream && response.body) {
+      // Forward streaming response
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.setHeader('Transfer-Encoding', 'chunked');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          res.write(chunk);
+        }
+        res.end();
+      } catch (error) {
+        console.error('Streaming error:', error);
+        reader.cancel();
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Streaming error' });
+        }
+      }
+    } else {
+      // Non-streaming response
+      const data = await response.json();
+      console.log('Ollama proxy response received, has response:', !!data.response);
+      res.json(data);
+    }
+  } catch (error) {
+    console.error('Ollama proxy error:', error);
+    res.status(500).json({ error: 'Failed to connect to Ollama server: ' + error.message });
   }
 });
 

@@ -15,16 +15,20 @@ interface HeaderProps {
   showAddFeedModal: boolean;
   onCloseAddFeedModal: () => void;
   onRegisterFocusSearch: (callback: () => void) => void;
+  onToggleMobileSidebar?: () => void;
+  isMobileSidebarOpen?: boolean;
 }
 
-const Header: React.FC<HeaderProps> = ({ 
-  isDarkMode, 
+const Header: React.FC<HeaderProps> = ({
+  isDarkMode,
   showUnreadOnly,
   onDarkModeToggle,
   onShowUnreadToggle,
   showAddFeedModal,
   onCloseAddFeedModal,
-  onRegisterFocusSearch
+  onRegisterFocusSearch,
+  onToggleMobileSidebar,
+  isMobileSidebarOpen
 }) => {
   const [isOllamaModalOpen, setIsOllamaModalOpen] = useState(false);
   const [isVoiceModalOpen, setIsVoiceModalOpen] = useState(false);
@@ -74,7 +78,23 @@ const Header: React.FC<HeaderProps> = ({
   return (
     <>
       <header className={`h-14 border-b ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-reader-border'} flex items-center px-4 justify-between`}>
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-4">
+          {/* Hamburger menu button - visible only on mobile */}
+          <button
+            onClick={onToggleMobileSidebar}
+            className={`md:hidden p-2 -ml-2 rounded-lg ${isDarkMode ? 'text-gray-300 hover:text-white hover:bg-gray-700' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'}`}
+            aria-label={isMobileSidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+          >
+            {isMobileSidebarOpen ? (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            )}
+          </button>
           <h1 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-reader-blue'}`}>
             InReader
           </h1>

@@ -11,9 +11,10 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 - **Feed Organization** - Folder support with drag-and-drop organization
 - **Visual Feed Status** - Color-coded unread badges to track content freshness
 - **Full Article Extraction** - Automatic fetching of complete article content
-- **AI-Powered Summaries** - Local LLM summaries via Ollama integration
+- **AI-Powered Summaries** - Local LLM summaries via Ollama integration (supports LAN servers)
 - **Chat with Articles** - Interactive AI discussions about article content
 - **Keyboard-First Design** - Vim-style navigation and comprehensive shortcuts
+- **Mobile-Responsive UI** - Collapsible sidebar with hamburger menu for mobile devices
 - **Dark Mode** - Modern, eye-friendly dark theme
 - **Text-to-Speech** - Queue-based article playback with progress tracking
 - **Smart Navigation** - URL-synced navigation with keyboard and mouse support
@@ -35,7 +36,8 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 
 #### AI & TTS Integration
 - Local LLM support via Ollama for privacy
-- Configurable AI models for summaries
+- **LAN Ollama Support** - Connect to Ollama servers on your local network (e.g., `http://192.168.x.x:11434`)
+- Configurable AI models for summaries and chat
 - Streaming chat responses with history tracking
 - Queue-based TTS playback with progress tracking
 - Automatic duplicate detection in TTS queue
@@ -133,6 +135,18 @@ docker-compose down
 ```
 
 > **Note:** Docker uses a self-signed SSL certificate. Accept the browser warning on first access.
+
+### Ollama Configuration (AI Features)
+To use AI-powered summaries and chat:
+
+1. Install [Ollama](https://ollama.ai/) on your machine or a server on your LAN
+2. Pull a model: `ollama pull llama3.2` (or any preferred model)
+3. For LAN access, start Ollama with: `OLLAMA_HOST=0.0.0.0 ollama serve`
+4. In InReader, click the lightning bolt icon and enter your Ollama server URL:
+   - Local: `http://localhost:11434`
+   - LAN: `http://192.168.x.x:11434` (your server's IP)
+
+> **Note:** For Vercel deployments, your Ollama server must be publicly accessible. For Docker/self-hosted, LAN servers work via the built-in proxy.
 
 ## Tech Stack
 - React 18
