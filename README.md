@@ -105,7 +105,16 @@ npm install
 npm run dev
 ```
 
-### Docker Deployment
+### Vercel Deployment (Recommended)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/JamesDavid/InReader)
+
+Or deploy manually:
+```bash
+npm i -g vercel
+vercel
+```
+
+### Docker Deployment (Self-hosted)
 ```bash
 # Build and run with HTTPS (self-signed certificate)
 docker-compose up --build
@@ -123,7 +132,7 @@ docker-compose up -d
 docker-compose down
 ```
 
-> **Note:** The Docker deployment uses a self-signed SSL certificate. You'll need to accept the browser security warning on first access.
+> **Note:** Docker uses a self-signed SSL certificate. Accept the browser warning on first access.
 
 ## Tech Stack
 - React 18
