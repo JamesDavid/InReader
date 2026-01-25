@@ -4,7 +4,9 @@ import { fetchArticleContent } from './articleService';
 import { generateSummary, loadOllamaConfig } from './ollamaService';
 import TurndownService from 'turndown';
 
-const API_URL = 'http://localhost:3000/api';
+// Use relative URL so it works through nginx proxy in production
+// and with Vite proxy in development
+const API_URL = '/api';
 
 // Create a shared TurndownService instance with the same config as articleService
 const turndownService = new TurndownService({

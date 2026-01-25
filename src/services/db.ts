@@ -592,13 +592,13 @@ export async function deleteSavedSearch(id: number) {
 
 export async function clearAllAISummaries() {
   // Get all entries with AI summaries
-  const entries = await db.entries.where('aiSummary').notEqual('').toArray();
-  
-  // Clear the aiSummary field for all entries that have one
-  const updates = entries.map(entry => 
-    db.entries.update(entry.id!, { aiSummary: null })
+  const entries = await db.entries.where('content_aiSummary').notEqual('').toArray();
+
+  // Clear the content_aiSummary field for all entries that have one
+  const updates = entries.map(entry =>
+    db.entries.update(entry.id!, { content_aiSummary: undefined })
   );
-  
+
   await Promise.all(updates);
   return entries.length; // Return number of cleared summaries
 }
@@ -834,7 +834,7 @@ export async function updateFeedTitle(feedId: number, newTitle: string) {
   });
 }
 
-export async function updateFolderName(folderId: string, newName: string) {
+export async function updateFolderName(folderId: number, newName: string) {
   return await withErrorHandling(async () => {
     const folder = await db.folders.get(folderId);
     if (!folder) {

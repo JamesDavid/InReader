@@ -457,44 +457,31 @@ const FeedList: React.FC<FeedListProps> = (props) => {
 
   // Keep the existing database hook for other updates
   useEffect(() => {
-    let unsubscribe: () => void;
-    
-    const setupSubscription = (): (() => void) => {
-      try {
-        db.entries.hook('updating', (modifications: any) => {
-          if (modifications.isStarred !== undefined) {
-            const loadEntries = async () => {
-              const loadedEntries = props.entries 
-                ? props.entries 
-                : feedId 
-                  ? (await getFeedEntries(parseInt(feedId))).entries
-                  : location.pathname === '/starred'
-                    ? await getStarredEntries()
-                    : location.pathname === '/listened'
-                      ? await getListenedEntries()
-                      : (await getAllEntries()).entries;
-              setEntries(loadedEntries);
-            };
-            loadEntries();
-          }
-        });
-        return () => {};
-      } catch (error) {
-        console.error('Error setting up database subscription:', error);
-        return () => {};
+    // Create the hook handler
+    const hookHandler = (modifications: any) => {
+      if (modifications.isStarred !== undefined) {
+        const loadEntries = async () => {
+          const loadedEntries = props.entries
+            ? props.entries
+            : feedId
+              ? (await getFeedEntries(parseInt(feedId))).entries
+              : location.pathname === '/starred'
+                ? await getStarredEntries()
+                : location.pathname === '/listened'
+                  ? await getListenedEntries()
+                  : (await getAllEntries()).entries;
+          setEntries(loadedEntries);
+        };
+        loadEntries();
       }
     };
 
-    unsubscribe = setupSubscription();
+    // Subscribe to the hook
+    db.entries.hook('updating', hookHandler);
 
+    // Cleanup: unsubscribe from the hook
     return () => {
-      if (unsubscribe) {
-        try {
-          unsubscribe();
-        } catch (error) {
-          console.error('Error unsubscribing from database:', error);
-        }
-      }
+      db.entries.hook('updating').unsubscribe(hookHandler);
     };
   }, [feedId, location.pathname, props.entries]);
 

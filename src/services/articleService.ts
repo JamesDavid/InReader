@@ -3,7 +3,8 @@ import TurndownService from 'turndown';
 import { db, type FeedEntry, notifyEntryUpdate } from './db';
 import { loadOllamaConfig, generateSummaryWithFallback } from './ollamaService';
 
-const API_URL = 'http://localhost:3000/api';
+// Use relative URL so it works through nginx proxy in production
+const API_URL = '/api';
 const turndownService = new TurndownService({
   headingStyle: 'atx',
   hr: '---',

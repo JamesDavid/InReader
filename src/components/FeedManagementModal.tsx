@@ -137,6 +137,7 @@ interface DraggableFolderProps {
   isDarkMode: boolean;
   isEditing: boolean;
   editingName: string;
+  editingItemId: string | null;
   feeds: Feed[];
   onStartEdit: (id: string, name: string) => void;
   onDelete: (id: string) => void;
@@ -153,6 +154,7 @@ const DraggableFolder: React.FC<DraggableFolderProps> = ({
   isDarkMode,
   isEditing,
   editingName,
+  editingItemId,
   feeds,
   onStartEdit,
   onDelete,
@@ -235,8 +237,8 @@ const DraggableFolder: React.FC<DraggableFolderProps> = ({
                       feed={feed}
                       index={index}
                       isDarkMode={isDarkMode}
-                      isEditing={false}
-                      editingName=""
+                      isEditing={editingItemId === String(feed.id)}
+                      editingName={editingName}
                       onStartEdit={onFeedStartEdit}
                       onDelete={onFeedDelete}
                       onEditingNameChange={onEditingNameChange}
@@ -594,6 +596,7 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
                         isDarkMode={isDarkMode}
                         isEditing={editingItemId === `folder-${folder.id}`}
                         editingName={editingName}
+                        editingItemId={editingItemId}
                         feeds={organizationState[folder.id] || []}
                         onStartEdit={(id, name) => handleStartEdit(`folder-${id}`, name)}
                         onDelete={handleDeleteFolder}

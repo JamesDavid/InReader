@@ -65,17 +65,31 @@ const SearchResults: React.FC = () => {
   };
 
   // Add useEffect to update feed titles for deleted feeds
+  // Use a ref to track if titles have been updated to prevent infinite loops
+  const titlesUpdatedRef = React.useRef(false);
+
   useEffect(() => {
+    // Reset the ref when query changes
+    titlesUpdatedRef.current = false;
+  }, [query]);
+
+  useEffect(() => {
+    // Skip if already updated or no entries
+    if (titlesUpdatedRef.current || entries.length === 0) return;
+
     const updateFeedTitles = async () => {
       // Only update if we have entries and they haven't been processed yet
-      const needsUpdate = entries.some(entry => 
+      const needsUpdate = entries.some(entry =>
         entry.feedId && (!entry.feedTitle || entry.feedTitle === 'Unknown Feed')
       );
-      
-      if (!needsUpdate) return;
+
+      if (!needsUpdate) {
+        titlesUpdatedRef.current = true;
+        return;
+      }
 
       const updatedEntries = await Promise.all(entries.map(async entry => {
-        if (entry.feedId) {
+        if (entry.feedId && (!entry.feedTitle || entry.feedTitle === 'Unknown Feed')) {
           const feedTitle = await getFeedTitle(entry.feedId);
           return {
             ...entry,
@@ -84,11 +98,13 @@ const SearchResults: React.FC = () => {
         }
         return entry;
       }));
+
+      titlesUpdatedRef.current = true;
       setEntries(updatedEntries);
     };
 
     updateFeedTitles();
-  }, [entries.length]); // Only run when entries array length changes
+  }, [entries]); // Depend on entries but use ref to prevent infinite loop
 
   if (isLoading) {
     return (

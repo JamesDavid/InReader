@@ -89,11 +89,11 @@ This color-coding system helps you quickly identify feeds with fresh content and
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js
-- npm or yarn
-- Ollama (for AI features)
+- Node.js (for development)
+- Docker (for production deployment)
+- Ollama (optional, for AI features)
 
-### Quick Start
+### Quick Start - Development
 ```bash
 # Clone the repository
 git clone [repository-url]
@@ -101,17 +101,39 @@ git clone [repository-url]
 # Install dependencies
 npm install
 
-# Start the development server
+# Start the development server (frontend + backend)
 npm run dev
 ```
 
-## 🛠�� Tech Stack
-- ⚛️ React
-- 📘 TypeScript
-- 🎨 Tailwind CSS
-- 💾 Dexie.js (IndexedDB)
-- ⚡ Vite
-- 🤖 React Router
+### Docker Deployment
+```bash
+# Build and run with HTTPS (self-signed certificate)
+docker-compose up --build
+
+# Access at https://localhost:8443
+# For network access: https://YOUR_IP:8443
+
+# Use a custom port
+PORT=9443 docker-compose up --build
+
+# Run in background
+docker-compose up -d
+
+# Stop
+docker-compose down
+```
+
+> **Note:** The Docker deployment uses a self-signed SSL certificate. You'll need to accept the browser security warning on first access.
+
+## Tech Stack
+- React 18
+- TypeScript
+- Tailwind CSS
+- Dexie.js (IndexedDB)
+- Vite
+- Express.js (backend API)
+- Docker + nginx
+- HTTPS with self-signed certificates
 
 ## Project Structure
 

@@ -192,18 +192,19 @@ const Sidebar: React.FC<SidebarProps> = ({
     
     // Add folders and their feeds
     folders.forEach(folder => {
-      const folderId = folder.id!.toString();
+      const folderIdStr = folder.id!.toString();
+      const folderIdNum = folder.id!;
       items.push({
-        id: `folder-${folderId}`,
-        path: `/folder/${folderId}`,
+        id: `folder-${folderIdStr}`,
+        path: `/folder/${folderIdStr}`,
         title: folder.name,
         isFolder: true
       });
-      
+
       // If folder is not collapsed, add its feeds
-      if (!collapsedFolders.has(folderId)) {
-        const folderFeeds = feedItems.filter(feed => 
-          feeds.find(f => f.id === feed.id)?.folderId === folder.id
+      if (!collapsedFolders.has(folderIdStr)) {
+        const folderFeeds = feedItems.filter(feed =>
+          feeds.find(f => f.id === feed.id)?.folderId === folderIdNum
         );
         items.push(...folderFeeds);
       }

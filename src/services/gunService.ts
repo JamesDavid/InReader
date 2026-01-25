@@ -229,17 +229,19 @@ class GunService {
     return new Promise((resolve, reject) => {
       const items: any[] = [];
       let timeoutId: NodeJS.Timeout;
-      let hasReceivedData = false;
+      let isResolved = false;
 
       const handleItem = (item: any, id: string) => {
-        if (item) {
+        if (item && !isResolved) {
           console.log('Received shared item:', { id, item });
-          hasReceivedData = true;
-          items.push({ ...item, id });
+          // Avoid duplicates
+          if (!items.some(i => i.id === id)) {
+            items.push({ ...item, id });
+          }
         }
       };
 
-      this.gun
+      const subscription = this.gun
         .user(userPubKey)
         .get('sharedItems')
         .map()
@@ -247,26 +249,39 @@ class GunService {
 
       // Set a timeout to resolve the promise after collecting items
       timeoutId = setTimeout(() => {
-        console.log('Resolving with items:', items);
-        if (items.length > 0 || hasReceivedData) {
-          resolve(items.sort((a, b) => 
+        if (isResolved) return;
+        isResolved = true;
+
+        // Unsubscribe from Gun listener
+        if (subscription && typeof subscription.off === 'function') {
+          subscription.off();
+        }
+
+        console.log('Resolving with items:', items.length);
+        resolve(items.sort((a, b) =>
+          new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()
+        ));
+      }, 2000);
+
+      // Hard timeout to prevent hanging
+      setTimeout(() => {
+        if (isResolved) return;
+        isResolved = true;
+        clearTimeout(timeoutId);
+
+        // Unsubscribe from Gun listener
+        if (subscription && typeof subscription.off === 'function') {
+          subscription.off();
+        }
+
+        if (items.length > 0) {
+          resolve(items.sort((a, b) =>
             new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()
           ));
         } else {
-          console.log('No items found or timeout reached');
-          resolve([]);
+          reject(new Error('Timeout getting shared items'));
         }
-      }, 2000); // Increased timeout to ensure we get the data
-
-      // Clean up timeout if promise is rejected
-      Promise.race([
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout getting shared items')), 5000)
-        )
-      ]).catch(error => {
-        clearTimeout(timeoutId);
-        reject(error);
-      });
+      }, 5000);
     });
   }
 

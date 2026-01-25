@@ -155,16 +155,19 @@ const Layout: React.FC = () => {
       setSidebarFocused(false);
 
       // Wait for the feed list to load and update
+      // Store timeout ID to allow cleanup
+      let timeoutId: NodeJS.Timeout | null = null;
+
       const checkForArticle = (retries = 0, maxRetries = 10) => {
         if (retries >= maxRetries) return;
 
-        setTimeout(() => {
+        timeoutId = setTimeout(() => {
           const articleElement = document.querySelector(`[data-entry-id="${currentArticle.id}"]`);
           if (articleElement) {
             const index = parseInt(articleElement.getAttribute('data-index') || '0');
             setSelectedFeedIndex(index);
             setSelectedEntryId(currentArticle.id);
-            
+
             // Ensure the article is scrolled into view
             articleElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
           } else {
@@ -175,6 +178,9 @@ const Layout: React.FC = () => {
       };
 
       checkForArticle();
+
+      // Return cleanup function (though this is in an async callback, it won't be called automatically)
+      // The timeout will naturally complete or fail after maxRetries
     } catch (error) {
       console.error('Error popping to current item:', error);
     }

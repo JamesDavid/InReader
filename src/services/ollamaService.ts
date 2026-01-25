@@ -83,24 +83,30 @@ export const generateSummary = async (
         const decoder = new TextDecoder();
         let summary = '';
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-          const chunk = decoder.decode(value);
-          try {
-            const lines = chunk.split('\n');
-            for (const line of lines) {
-              if (!line.trim()) continue;
-              const data = JSON.parse(line);
-              if (data.response) {
-                summary += data.response;
-                safeOnToken(data.response);
+            const chunk = decoder.decode(value);
+            try {
+              const lines = chunk.split('\n');
+              for (const line of lines) {
+                if (!line.trim()) continue;
+                const data = JSON.parse(line);
+                if (data.response) {
+                  summary += data.response;
+                  safeOnToken(data.response);
+                }
               }
+            } catch (e) {
+              console.error('Error parsing streaming response:', e);
             }
-          } catch (e) {
-            console.error('Error parsing streaming response:', e);
           }
+        } catch (e) {
+          // Cancel the reader on error to prevent memory leaks
+          reader.cancel().catch(() => {});
+          throw e;
         }
         return summary;
       } else {

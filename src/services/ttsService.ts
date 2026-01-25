@@ -370,23 +370,24 @@ class TTSService {
   }
 
   next() {
+    // Stop current speech first
+    window.speechSynthesis.cancel();
+
+    // Check if there's a next article after the current one
     if (this.currentArticleIndex < this.queue.length - 1) {
       // Remove the current article from the queue
       if (this.currentArticleIndex >= 0) {
-        this.queue = this.queue.filter((_, index) => index !== this.currentArticleIndex);
+        this.queue.splice(this.currentArticleIndex, 1);
         // Don't increment the index since we removed the current item
-        // and the next item has shifted down
+        // and the next item has shifted down to the current index
       }
-      
-      // Stop current speech
-      window.speechSynthesis.cancel();
-      
+
       // Start playing the next item (which is now at the current index)
-      const nextArticle = this.queue[this.currentArticleIndex];
-      if (nextArticle) {
+      if (this.currentArticleIndex < this.queue.length) {
+        const nextArticle = this.queue[this.currentArticleIndex];
         this.playArticle(nextArticle);
       } else {
-        // If there's no next article, stop
+        // Safety check: if index is somehow out of bounds, stop
         this.stop();
       }
     } else {

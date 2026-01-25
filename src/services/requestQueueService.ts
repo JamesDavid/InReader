@@ -26,6 +26,8 @@ export const initializeQueue = (concurrency: number = 2) => {
       return;
     }
     console.log('Reinitializing queue with new concurrency:', concurrency);
+    // Remove all listeners from old queue before creating new one
+    queue.removeAllListeners();
   } else {
     console.log('Initializing new queue with concurrency:', concurrency);
   }
@@ -34,32 +36,14 @@ export const initializeQueue = (concurrency: number = 2) => {
   // Set up queue event listeners
   queue.on('active', () => {
     console.log('Queue event - active. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
   });
 
   queue.on('idle', () => {
     console.log('Queue event - idle. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
-  });
-
-  queue.on('add', () => {
-    console.log('Queue event - add. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
-  });
-
-  queue.on('next', () => {
-    console.log('Queue event - next. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
-  });
-
-  queue.on('completed', () => {
-    console.log('Queue event - completed. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
   });
 
   queue.on('error', () => {
     console.log('Queue event - error. Queue size:', queue?.size);
-    console.log('Request state - Queued:', queuedRequests.length, 'Processing:', processingRequests.length, 'Failed:', failedRequests.length);
   });
 };
 

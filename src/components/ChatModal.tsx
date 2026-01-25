@@ -361,18 +361,31 @@ const ChatModal: React.FC<ChatModalProps> = ({
         }
       }
 
-      // Save final chat history
-      const finalMessages = [...messages.slice(0, -1), {
-        ...messages[messages.length - 1],
-        content: responseText,
-        timestamp: new Date()
-      }];
-      await db.entries.update(entryId, { 
-        chatHistory: finalMessages,
-        lastChatDate: new Date()
+      // Save final chat history - use setMessages callback to get current state
+      // to avoid stale closure issues from the streaming updates
+      setMessages(currentMessages => {
+        const finalMessages = currentMessages.map((msg, idx) => {
+          // Update the last assistant message with final content and timestamp
+          if (idx === currentMessages.length - 1 && msg.role === 'assistant') {
+            return {
+              ...msg,
+              content: responseText,
+              timestamp: new Date()
+            };
+          }
+          return msg;
+        });
+
+        // Save to database (async, but we don't need to wait)
+        db.entries.update(entryId, {
+          chatHistory: finalMessages,
+          lastChatDate: new Date()
+        }).then(() => {
+          onChatUpdate?.();
+        });
+
+        return finalMessages;
       });
-      setMessages(finalMessages);
-      onChatUpdate?.();
 
     } catch (err) {
       console.error('Chat error:', err);

@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # All-in-one production container
+  # Usage: PORT=8443 docker-compose up --build
+  # Access via https://your-ip:8443 (accept the self-signed cert warning)
+  inreader:
+    build:
+      context: .
+      target: production
+    ports:
+      - "${PORT:-8443}:443"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fk", "https://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Alternative: separate containers for development/scaling
+  # Uncomment below and comment out 'inreader' above to use separate containers
+
+  # frontend:
+  #   build:
+  #     context: .
+  #     target: frontend-builder
+  #   volumes:
+  #     - ./dist:/app/dist
+  #   command: npm run build
+
+  # backend:
+  #   build:
+  #     context: .
+  #     target: backend
+  #   ports:
+  #     - "3000:3000"
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
