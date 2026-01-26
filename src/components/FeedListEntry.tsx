@@ -5,6 +5,9 @@ import { type FeedEntryWithTitle, type ChatMessage, subscribeToEntryUpdates, db,
 import { reprocessEntry } from '../services/feedParser';
 import ttsService from '../services/ttsService';
 import { gunService } from '../services/gunService';
+import { useSwipeGesture } from '../hooks/useSwipeGesture';
+import EntryActionStrip from './EntryActionStrip';
+import EntryBottomSheet from './EntryBottomSheet';
 
 interface FeedListEntryProps {
   entry: FeedEntryWithTitle;
@@ -48,6 +51,36 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   const articleRef = useRef<HTMLElement>(null);
   const contentElementRef = useRef<HTMLDivElement | null>(null);
   const [feedTitle, setFeedTitle] = useState(entry.feedTitle);
+  const [isMobile, setIsMobile] = useState(false);
+  const [bottomSheetOpen, setBottomSheetOpen] = useState(false);
+  const swipeContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 767px)');
+    setIsMobile(mql.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mql.addEventListener('change', handler);
+    return () => mql.removeEventListener('change', handler);
+  }, []);
+
+  const handleSwipeLeft = useCallback(() => {
+    if (!currentEntry.id) return;
+    onMarkAsRead(currentEntry.id, true);
+    window.dispatchEvent(new CustomEvent('mobileSwipeDismiss', {
+      detail: { entryId: currentEntry.id, index }
+    }));
+  }, [currentEntry.id, index, onMarkAsRead]);
+
+  const handleSwipeLongPress = useCallback(() => {
+    setBottomSheetOpen(true);
+  }, []);
+
+  const { state: swipeState, resetReveal } = useSwipeGesture(swipeContainerRef, {
+    onSwipeLeft: handleSwipeLeft,
+    onSwipeRight: () => {}, // Strip revealed by hook state
+    onLongPress: handleSwipeLongPress,
+    enabled: isMobile,
+  });
 
   const getContentLength = (content: string): number => {
     const div = document.createElement('div');
@@ -482,32 +515,72 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
       onClick={(e) => {
         console.log('Article clicked, entry ID:', currentEntry.id);
         if (isChatOpen) return;
-        if (e.target instanceof HTMLButtonElement || 
+        if (e.target instanceof HTMLButtonElement ||
             (e.target instanceof HTMLElement && e.target.closest('button'))) {
+          return;
+        }
+        if (swipeState.isRevealed) {
+          resetReveal();
           return;
         }
         onSelect(index);
         !isFocused && onFocusChange(true);
       }}
-      className={`border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-100'} transition-colors
-        ${currentEntry.isRead ? 'opacity-75' : ''} 
-        ${isDarkMode 
-          ? 'hover:bg-gray-800' 
-          : 'hover:bg-reader-hover'} 
-        ${isFocused && isSelected 
-          ? (isDarkMode ? 'bg-gray-800 ring-2 ring-reader-blue ring-opacity-50' : 'bg-reader-hover ring-2 ring-reader-blue ring-opacity-50') 
+      className={`relative overflow-hidden border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-100'} transition-colors
+        ${currentEntry.isRead ? 'opacity-75' : ''}
+        ${isDarkMode
+          ? 'hover:bg-gray-800'
+          : 'hover:bg-reader-hover'}
+        ${isFocused && isSelected
+          ? (isDarkMode ? 'bg-gray-800 ring-2 ring-reader-blue ring-opacity-50' : 'bg-reader-hover ring-2 ring-reader-blue ring-opacity-50')
           : ''}`}
       style={{ cursor: isChatOpen ? 'default' : 'pointer' }}
     >
+      {/* Action strip behind content (mobile only) */}
+      {isMobile && (swipeState.direction === 'right' || swipeState.isRevealed) && (
+        <EntryActionStrip
+          isDarkMode={isDarkMode}
+          isStarred={!!currentEntry.isStarred}
+          onStar={() => onToggleStar(currentEntry.id!)}
+          onChat={() => onOpenChat?.(currentEntry)}
+          onListen={() => {
+            const content = currentEntry.content_fullArticle || currentEntry.content_rssAbstract;
+            if (content && currentEntry.id) {
+              ttsService.addToQueue({
+                id: currentEntry.id,
+                title: currentEntry.title,
+                content_fullArticle: currentEntry.content_fullArticle,
+                content_rssAbstract: currentEntry.content_rssAbstract,
+                content_aiSummary: currentEntry.content_aiSummary,
+                feedTitle: feedTitle
+              });
+            }
+          }}
+          onDone={resetReveal}
+        />
+      )}
+
+      {/* Swipeable content layer */}
+      <div
+        ref={swipeContainerRef}
+        style={{
+          transform: isMobile ? `translateX(${swipeState.translateX}px)` : undefined,
+        }}
+        className={`${isDarkMode ? 'bg-gray-900' : 'bg-white'} ${
+          swipeState.isTransitioning ? 'transition-transform duration-300' : ''
+        } relative`}
+      >
       <div className="flex items-center px-4 py-2 gap-4">
-        <div className="flex items-center gap-1">
+        {/* Desktop action buttons - hidden on mobile */}
+        <div className="hidden md:flex items-center gap-1">
           <button
             onClick={() => onMarkAsRead(currentEntry.id!, !currentEntry.isRead)}
             className={`p-1.5 rounded transition-colors ${
-              isDarkMode 
-                ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700' 
+              isDarkMode
+                ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
                 : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
             }`}
+            title="Toggle read/unread (m)"
           >
             {currentEntry.isRead ? '✓' : '○'}
           </button>
@@ -520,6 +593,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                   ? 'text-gray-400 hover:text-yellow-500'
                   : 'text-gray-500 hover:text-yellow-500'
             }`}
+            title="Toggle star (i)"
           >
             {currentEntry.isStarred ? '★' : '☆'}
           </button>
@@ -527,30 +601,33 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
             onClick={handleRefresh}
             disabled={isRefreshing}
             className={`p-1.5 rounded transition-colors ${
-              isDarkMode 
-                ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+              isDarkMode
+                ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200'
                 : 'hover:bg-gray-200 text-gray-500 hover:text-gray-700'
             } ${isRefreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
-            title="Refresh content and summary"
+            title="Refresh content and summary (u)"
           >
-            <svg 
-              xmlns="http://www.w3.org/2000/svg" 
-              className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} 
-              viewBox="0 0 20 20" 
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`}
+              viewBox="0 0 20 20"
               fill="currentColor"
             >
-              <path 
-                fillRule="evenodd" 
-                d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" 
-                clipRule="evenodd" 
+              <path
+                fillRule="evenodd"
+                d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
+                clipRule="evenodd"
               />
             </svg>
           </button>
+        </div>
+        {/* Status badges - always visible */}
+        <div className="flex items-center gap-1">
           {currentEntry.content_fullArticle && currentEntry.content_fullArticle.length > 0 && (
-            <div 
+            <div
               className={`px-1.5 py-0.5 rounded text-xs font-medium
-                ${isDarkMode 
-                  ? 'bg-green-500/20 text-green-200' 
+                ${isDarkMode
+                  ? 'bg-green-500/20 text-green-200'
                   : 'bg-green-100 text-green-800'}`}
               title="Full article content available"
             >
@@ -560,10 +637,10 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
             </div>
           )}
           {currentEntry.content_aiSummary && (
-            <div 
+            <div
               className={`px-1.5 py-0.5 rounded text-xs font-medium
-                ${isDarkMode 
-                  ? 'bg-yellow-500/20 text-yellow-200' 
+                ${isDarkMode
+                  ? 'bg-yellow-500/20 text-yellow-200'
                   : 'bg-yellow-100 text-yellow-800'}`}
               title="AI Summary available"
             >
@@ -573,10 +650,10 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
             </div>
           )}
           {currentEntry.requestProcessingStatus === 'pending' && (
-            <div 
+            <div
               className={`px-1.5 py-0.5 rounded text-xs font-medium flex items-center gap-1
-                ${isDarkMode 
-                  ? 'bg-blue-500/20 text-blue-200' 
+                ${isDarkMode
+                  ? 'bg-blue-500/20 text-blue-200'
                   : 'bg-blue-100 text-blue-800'}`}
               title="Processing article content"
             >
@@ -625,7 +702,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
               className={`p-1 rounded transition-colors ${
                 isDarkMode ? 'text-blue-400 hover:text-blue-300' : 'text-blue-500 hover:text-blue-600'
               }`}
-              title="Open chat"
+              title="Open chat (l)"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
@@ -692,16 +769,17 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                 {isExpanded ? 'Show less' : 'Show more'}
               </button>
             )}
-            <div className="flex items-center gap-2 ml-auto">
+            {/* Desktop action bar - hidden on mobile */}
+            <div className="hidden md:flex items-center gap-2 ml-auto">
               <button
                 onClick={handleTTS}
-                disabled={!isSelected} // Disable if not selected
+                disabled={!isSelected}
                 className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
-                  ${isDarkMode 
-                    ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                  ${isDarkMode
+                    ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200'
                     : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}
                   ${!isSelected ? 'opacity-50 cursor-not-allowed' : ''}`}
-                title={isSelected ? "Add to TTS queue" : "Select entry to add to TTS queue"}
+                title={isSelected ? "Add to TTS queue ([)" : "Select entry to add to TTS queue"}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.415z" clipRule="evenodd"/>
@@ -711,10 +789,10 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
               <button
                 onClick={handleCopy}
                 className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
-                  ${isDarkMode 
-                    ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                  ${isDarkMode
+                    ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200'
                     : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}
-                title="Copy article content"
+                title="Copy article content (')"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
@@ -725,10 +803,10 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
               <button
                 onClick={handleEmail}
                 className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
-                  ${isDarkMode 
-                    ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                  ${isDarkMode
+                    ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200'
                     : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}
-                title="Email article"
+                title="Email article (-)"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
@@ -744,14 +822,14 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                       try {
                         await gunService.shareItem(currentEntry);
                         window.dispatchEvent(new CustomEvent('showToast', {
-                          detail: { 
+                          detail: {
                             message: 'Article shared successfully',
                             type: 'success'
                           }
                         }));
                       } catch (error) {
                         window.dispatchEvent(new CustomEvent('showToast', {
-                          detail: { 
+                          detail: {
                             message: 'Failed to share article',
                             type: 'error'
                           }
@@ -759,8 +837,8 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                       }
                     }}
                     className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
-                      ${isDarkMode 
-                        ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                      ${isDarkMode
+                        ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200'
                         : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}
                     title="Share article"
                   >
@@ -777,14 +855,14 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                         try {
                           await gunService.shareItem(currentEntry, comment);
                           window.dispatchEvent(new CustomEvent('showToast', {
-                            detail: { 
+                            detail: {
                               message: 'Article shared with comment',
                               type: 'success'
                             }
                           }));
                         } catch (error) {
                           window.dispatchEvent(new CustomEvent('showToast', {
-                            detail: { 
+                            detail: {
                               message: 'Failed to share article',
                               type: 'error'
                             }
@@ -793,8 +871,8 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
                       }
                     }}
                     className={`shrink-0 p-1.5 rounded-lg transition-colors flex items-center gap-2 text-sm
-                      ${isDarkMode 
-                        ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200' 
+                      ${isDarkMode
+                        ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200'
                         : 'hover:bg-gray-100 text-gray-500 hover:text-gray-700'}`}
                     title="Share article with comment"
                   >
@@ -809,8 +887,53 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
           </div>
         </div>
       )}
+      </div>{/* end swipeable content layer */}
+
+      {/* Bottom sheet (mobile only) */}
+      {isMobile && (
+        <EntryBottomSheet
+          isOpen={bottomSheetOpen}
+          onClose={() => setBottomSheetOpen(false)}
+          isDarkMode={isDarkMode}
+          entry={currentEntry}
+          onMarkAsRead={onMarkAsRead}
+          onToggleStar={onToggleStar}
+          onOpenChat={() => onOpenChat?.(currentEntry)}
+          onListen={() => {
+            const content = currentEntry.content_fullArticle || currentEntry.content_rssAbstract;
+            if (content && currentEntry.id) {
+              ttsService.addToQueue({
+                id: currentEntry.id,
+                title: currentEntry.title,
+                content_fullArticle: currentEntry.content_fullArticle,
+                content_rssAbstract: currentEntry.content_rssAbstract,
+                content_aiSummary: currentEntry.content_aiSummary,
+                feedTitle: feedTitle
+              });
+            }
+          }}
+          onCopy={handleCopy}
+          onEmail={handleEmail}
+          onRefresh={async () => {
+            if (!currentEntry.id || isRefreshing) return;
+            setIsRefreshing(true);
+            try {
+              await reprocessEntry(currentEntry.id);
+            } catch (error) {
+              console.error('Failed to refresh entry:', error);
+            } finally {
+              setIsRefreshing(false);
+            }
+          }}
+          onOpenInBrowser={() => {
+            if (currentEntry.link) {
+              window.open(currentEntry.link, '_blank');
+            }
+          }}
+        />
+      )}
     </article>
   );
 };
 
-export default FeedListEntry; 
+export default FeedListEntry;

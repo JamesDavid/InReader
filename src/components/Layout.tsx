@@ -104,6 +104,7 @@ const Layout: React.FC = () => {
   const [isChatModalOpen, setIsChatModalOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
 
   // Create a ref to store the focusSearch callback from Header
   const [focusSearchCallback, setFocusSearchCallback] = useState<(() => void) | null>(null);
@@ -197,6 +198,75 @@ const Layout: React.FC = () => {
     return () => window.removeEventListener('showToast', handleToast as EventListener);
   }, []);
 
+  // Handle mobile swipe-left dismiss: advance to next entry
+  useEffect(() => {
+    const handleSwipeDismiss = (event: CustomEvent<{ entryId: number; index: number }>) => {
+      const { index: dismissedIndex } = event.detail;
+
+      // Delay to let the dismiss animation complete
+      setTimeout(() => {
+        const feedListElement = document.querySelector('main [data-current-page]');
+        if (!feedListElement) return;
+
+        const articles = feedListElement.querySelectorAll('article');
+        const maxItems = articles.length;
+        const currentPage = parseInt(feedListElement.getAttribute('data-current-page') || '1');
+        const totalPages = parseInt(feedListElement.getAttribute('data-total-pages') || '1');
+
+        if (showUnreadOnly) {
+          // In unread-only mode: entry disappears, next slides into same position
+          // Keep same index, read the new entry ID from the DOM
+          const sameIndexArticle = feedListElement.querySelector(`article[data-index="${dismissedIndex}"]`);
+          if (sameIndexArticle) {
+            const newEntryId = sameIndexArticle.getAttribute('data-entry-id');
+            if (newEntryId) {
+              setSelectedEntryId(parseInt(newEntryId));
+            }
+          } else if (dismissedIndex > 0) {
+            // If no entry at same index, go to previous
+            const prevArticle = feedListElement.querySelector(`article[data-index="${dismissedIndex - 1}"]`);
+            if (prevArticle) {
+              setSelectedFeedIndex(dismissedIndex - 1);
+              const newEntryId = prevArticle.getAttribute('data-entry-id');
+              if (newEntryId) setSelectedEntryId(parseInt(newEntryId));
+            }
+          }
+        } else {
+          // Normal mode: advance to next entry
+          const nextIndex = dismissedIndex + 1;
+
+          if (nextIndex >= maxItems && currentPage < totalPages) {
+            // Page boundary: go to next page
+            window.dispatchEvent(new CustomEvent('feedListPageChange', {
+              detail: { page: currentPage + 1, selectIndex: 0, direction: 'next' }
+            }));
+            setSelectedFeedIndex(0);
+          } else if (nextIndex >= maxItems) {
+            // Last item on last page: stay at previous
+            const stayIndex = Math.max(0, maxItems - 2);
+            setSelectedFeedIndex(stayIndex);
+            const stayArticle = feedListElement.querySelector(`article[data-index="${stayIndex}"]`);
+            if (stayArticle) {
+              const newEntryId = stayArticle.getAttribute('data-entry-id');
+              if (newEntryId) setSelectedEntryId(parseInt(newEntryId));
+            }
+          } else {
+            // Normal advance
+            setSelectedFeedIndex(nextIndex);
+            const nextArticle = feedListElement.querySelector(`article[data-index="${nextIndex}"]`);
+            if (nextArticle) {
+              const newEntryId = nextArticle.getAttribute('data-entry-id');
+              if (newEntryId) setSelectedEntryId(parseInt(newEntryId));
+            }
+          }
+        }
+      }, 350);
+    };
+
+    window.addEventListener('mobileSwipeDismiss', handleSwipeDismiss as EventListener);
+    return () => window.removeEventListener('mobileSwipeDismiss', handleSwipeDismiss as EventListener);
+  }, [showUnreadOnly]);
+
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
       // Only block non-TTS keyboard shortcuts if we're in an input/textarea
@@ -217,7 +287,14 @@ const Layout: React.FC = () => {
         return;
       }
 
-      // Block other shortcuts if in input or non-chat modal
+      // Handle ? key to open shortcuts modal (fires before modal check)
+      if (e.key === '?' && !isInInput) {
+        e.preventDefault();
+        setIsShortcutsModalOpen(prev => !prev);
+        return;
+      }
+
+      // Block other shortcuts if in input or non-chat modal (including shortcuts modal)
       if (isInInput || (isModalOpen && !isChatModalOpen)) {
         return;
       }
@@ -230,6 +307,8 @@ const Layout: React.FC = () => {
             setSelectedEntry(null);
           } else if (isSearchModalOpen) {
             setIsSearchModalOpen(false);
+          } else if (isShortcutsModalOpen) {
+            setIsShortcutsModalOpen(false);
           } else if (showAddFeedModal) {
             setShowAddFeedModal(false);
           }
@@ -737,7 +816,8 @@ const Layout: React.FC = () => {
     setSelectedFeedIndex,
     selectedEntryId,
     lastNavigationKey,
-    isChatModalOpen
+    isChatModalOpen,
+    isShortcutsModalOpen
   ]);
 
   useEffect(() => {
@@ -807,6 +887,8 @@ const Layout: React.FC = () => {
         onCloseAddFeedModal={() => setShowAddFeedModal(false)}
         onToggleMobileSidebar={handleToggleMobileSidebar}
         isMobileSidebarOpen={isMobileSidebarOpen}
+        isShortcutsModalOpen={isShortcutsModalOpen}
+        onToggleShortcutsModal={() => setIsShortcutsModalOpen(prev => !prev)}
       />
       <div className="flex flex-1 overflow-hidden relative">
         {/* Mobile sidebar overlay */}

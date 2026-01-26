@@ -14,7 +14,8 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 - **AI-Powered Summaries** - Local LLM summaries via Ollama integration (supports LAN servers)
 - **Chat with Articles** - Interactive AI discussions about article content
 - **Keyboard-First Design** - Vim-style navigation and comprehensive shortcuts
-- **Mobile-Responsive UI** - Collapsible sidebar with hamburger menu for mobile devices
+- **Mobile Touch Gestures** - Swipe left to mark read & advance, swipe right for quick actions, long press for all actions
+- **Mobile-Responsive UI** - Collapsible sidebar with hamburger menu, gesture-driven entry management
 - **Dark Mode** - Modern, eye-friendly dark theme
 - **Text-to-Speech** - Queue-based article playback with progress tracking
 - **Smart Navigation** - URL-synced navigation with keyboard and mouse support
@@ -76,6 +77,15 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 - `p` - Pop to currently playing article
 - `Shift+P` - Go to previous page
 - `Ctrl+P` - Go to next page
+
+### 📱 Mobile Touch Gestures
+- **Swipe Left** - Mark entry as read and advance to next
+- **Swipe Right** - Reveal quick-action strip (Star, Chat, Listen)
+- **Long Press** - Open bottom sheet with all actions (read/unread, star, chat, listen, copy, email, share, refresh, open in browser)
+- **Tap** - Select entry
+- **Tap outside strip** - Close revealed action strip
+
+> Tap the "InReader" title on mobile to see the gesture guide.
 
 ### 🎨 Visual Indicators
 
