@@ -101,7 +101,7 @@ export const testOllamaConnection = async (serverUrl: string): Promise<boolean> 
   }
 };
 
-export const testOpenAIConnection = async (apiKey: string): Promise<boolean> => {
+export const testOpenAIConnection = async (apiKey: string): Promise<string | null> => {
   try {
     const response = await fetch('/api/openai/proxy', {
       method: 'POST',
@@ -113,27 +113,31 @@ export const testOpenAIConnection = async (apiKey: string): Promise<boolean> => 
         max_tokens: 1
       })
     });
-    return response.ok;
-  } catch {
-    return false;
+    if (response.ok) return null;
+    const errorData = await response.text();
+    return `OpenAI API error (${response.status}): ${errorData}`;
+  } catch (err) {
+    return `Failed to connect: ${err instanceof Error ? err.message : String(err)}`;
   }
 };
 
-export const testAnthropicConnection = async (apiKey: string): Promise<boolean> => {
+export const testAnthropicConnection = async (apiKey: string): Promise<string | null> => {
   try {
     const response = await fetch('/api/anthropic/proxy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         apiKey,
-        model: 'claude-haiku-35-20241022',
+        model: 'claude-3-5-haiku-20241022',
         messages: [{ role: 'user', content: 'hi' }],
         max_tokens: 1
       })
     });
-    return response.ok;
-  } catch {
-    return false;
+    if (response.ok) return null;
+    const errorData = await response.text();
+    return `Anthropic API error (${response.status}): ${errorData}`;
+  } catch (err) {
+    return `Failed to connect: ${err instanceof Error ? err.message : String(err)}`;
   }
 };
 
@@ -153,7 +157,7 @@ const OPENAI_MODELS = [
 
 const ANTHROPIC_MODELS = [
   { name: 'claude-sonnet-4-20250514' },
-  { name: 'claude-haiku-35-20241022' },
+  { name: 'claude-3-5-haiku-20241022' },
   { name: 'claude-opus-4-20250514' }
 ];
 

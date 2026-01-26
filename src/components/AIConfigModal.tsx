@@ -70,6 +70,7 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
     requests: []
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   useEffect(() => {
     const config = loadAIConfig();
@@ -84,8 +85,15 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
       setChatSystemPrompt(config.chatSystemPrompt || defaultSystemPrompts.chat);
       setMaxConcurrentRequests(config.maxConcurrentRequests || 2);
       initializeQueue(config.maxConcurrentRequests || 2);
-      // Test connection on load if we have a saved config
-      handleTestConnection(config.provider || 'ollama', config.serverUrl, config.summaryModel, config.chatModel);
+      // Test connection on load - pass keys directly since setState hasn't flushed
+      handleTestConnection(
+        config.provider || 'ollama',
+        config.serverUrl,
+        config.summaryModel,
+        config.chatModel,
+        config.openaiApiKey,
+        config.anthropicApiKey
+      );
     }
   }, []);
 
@@ -105,27 +113,57 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
     prov: AIConfig['provider'],
     url?: string,
     currentSummaryModel?: string,
-    currentChatModel?: string
+    currentChatModel?: string,
+    openaiKey?: string,
+    anthropicKey?: string
   ) => {
     setIsConnecting(true);
     setIsConnected(false);
+    setConnectionError(null);
 
     let connected = false;
+    let error: string | null = null;
     switch (prov) {
-      case 'openai':
-        connected = await testOpenAIConnection(openaiApiKey);
+      case 'openai': {
+        const key = openaiKey ?? openaiApiKey;
+        if (!key) {
+          error = 'Please enter an API key';
+          break;
+        }
+        const result = await testOpenAIConnection(key);
+        if (result === null) {
+          connected = true;
+        } else {
+          error = result;
+        }
         break;
-      case 'anthropic':
-        connected = await testAnthropicConnection(anthropicApiKey);
+      }
+      case 'anthropic': {
+        const key = anthropicKey ?? anthropicApiKey;
+        if (!key) {
+          error = 'Please enter an API key';
+          break;
+        }
+        const result = await testAnthropicConnection(key);
+        if (result === null) {
+          connected = true;
+        } else {
+          error = result;
+        }
         break;
+      }
       case 'ollama':
       default:
         connected = await testOllamaConnection(url || serverUrl);
+        if (!connected) {
+          error = `Failed to connect to Ollama server at ${url || serverUrl}`;
+        }
         break;
     }
 
     setIsConnected(connected);
     setIsConnecting(false);
+    setConnectionError(error);
 
     if (connected) {
       const models = await getAvailableModels(prov, url || serverUrl);
@@ -151,6 +189,7 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
   const handleProviderChange = async (newProvider: AIConfig['provider']) => {
     setProvider(newProvider);
     setIsConnected(false);
+    setConnectionError(null);
     setAvailableModels([]);
     setSummaryModel('');
     setChatModel('');
@@ -368,6 +407,11 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
             {isConnected && (
               <p className={`text-sm mt-2 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>
                 Connected successfully
+              </p>
+            )}
+            {connectionError && !isConnecting && (
+              <p className={`text-sm mt-2 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>
+                {connectionError}
               </p>
             )}
             {clearMessage && (
