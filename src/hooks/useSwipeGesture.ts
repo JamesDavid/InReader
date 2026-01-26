@@ -219,15 +219,7 @@ export function useSwipeGesture(
         setTimeout(() => {
           callbacksRef.current.onSwipeLeft();
         }, 300);
-        setTimeout(() => {
-          setState(s => ({
-            ...s,
-            translateX: 0,
-            isSwiping: false,
-            direction: null,
-            isTransitioning: false,
-          }));
-        }, 350);
+        // No translateX reset — the entry collapses via its own CSS animation
       } else if (action === 'reveal-right') {
         callbacksRef.current.onSwipeRight();
         setTimeout(() => {

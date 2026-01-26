@@ -64,32 +64,17 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     return () => mql.removeEventListener('change', handler);
   }, []);
 
-  // Animate height collapse when dismissed via swipe
-  useEffect(() => {
-    if (!isDismissing || !articleRef.current) return;
-    const el = articleRef.current;
-    // Fix the height to current value
-    el.style.height = el.offsetHeight + 'px';
-    el.style.overflow = 'hidden';
-    // Next frame: animate to 0
-    requestAnimationFrame(() => {
-      el.style.transition = 'height 300ms ease-out, opacity 300ms ease-out';
-      el.style.height = '0px';
-      el.style.opacity = '0';
-    });
-  }, [isDismissing]);
-
   const handleSwipeLeft = useCallback(() => {
     if (!currentEntry.id) return;
-    // Start height collapse animation
+    // Start height collapse animation immediately
     setIsDismissing(true);
     onMarkAsRead(currentEntry.id, true);
-    // Delay the advance event so the collapse animation plays first
+    // Dispatch advance after collapse animation completes
     setTimeout(() => {
       window.dispatchEvent(new CustomEvent('mobileSwipeDismiss', {
         detail: { entryId: currentEntry.id, index }
       }));
-    }, 200);
+    }, 300);
   }, [currentEntry.id, index, onMarkAsRead]);
 
   const handleSwipeLongPress = useCallback(() => {
@@ -529,6 +514,10 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   }, [currentEntry, isSelected, feedTitle]);
 
   return (
+    <div
+      className={`grid transition-[grid-template-rows] duration-300 ease-out ${isDismissing ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}
+    >
+    <div className="overflow-hidden">
     <article
       ref={articleRef}
       data-index={index}
@@ -961,6 +950,8 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
         />
       )}
     </article>
+    </div>
+    </div>
   );
 };
 
