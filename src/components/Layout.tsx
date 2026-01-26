@@ -894,6 +894,7 @@ const Layout: React.FC = () => {
         isMobileSidebarOpen={isMobileSidebarOpen}
         isShortcutsModalOpen={isShortcutsModalOpen}
         onToggleShortcutsModal={() => setIsShortcutsModalOpen(prev => !prev)}
+        onOpenSearch={() => setIsSearchModalOpen(true)}
       />
       <div className="flex flex-1 overflow-hidden relative">
         {/* Mobile sidebar overlay */}
