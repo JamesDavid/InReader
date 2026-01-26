@@ -77,7 +77,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
 
   const { state: swipeState, resetReveal } = useSwipeGesture(swipeContainerRef, {
     onSwipeLeft: handleSwipeLeft,
-    onSwipeRight: () => {}, // Strip revealed by hook state
+    onSwipeRight: () => { if (currentEntry.id) onMarkAsRead(currentEntry.id, true); },
     onLongPress: handleSwipeLongPress,
     enabled: isMobile,
   });

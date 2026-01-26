@@ -207,6 +207,7 @@ export function useSwipeGesture(
           if (prev.translateX > swipeRightMax / 2) {
             // Snap to revealed position
             isRevealedRef.current = true;
+            callbacksRef.current.onSwipeRight();
             setTimeout(() => {
               setState(s => ({ ...s, isTransitioning: false }));
             }, 300);
