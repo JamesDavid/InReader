@@ -216,8 +216,10 @@ export function useSwipeGesture(
 
       // Fire callbacks outside setState updater
       if (action === 'swipe-left') {
-        // Fire immediately so height collapse starts simultaneously with slide-off
-        callbacksRef.current.onSwipeLeft();
+        // Wait for slide-off animation to complete, then fire callback
+        setTimeout(() => {
+          callbacksRef.current.onSwipeLeft();
+        }, 300);
       } else if (action === 'reveal-right') {
         callbacksRef.current.onSwipeRight();
         setTimeout(() => {

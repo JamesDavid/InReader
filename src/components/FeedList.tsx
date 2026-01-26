@@ -61,11 +61,19 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   });
   const [isLoadingPage, setIsLoadingPage] = useState(false);
   const [targetPage, setTargetPage] = useState(1);
+  const [dismissedEntryIds, setDismissedEntryIds] = useState<Set<number>>(new Set());
 
-  // Filter entries based on showUnreadOnly
+  // Filter entries based on showUnreadOnly and dismissed entries
   const filteredEntries = useMemo(() => {
-    return showUnreadOnly ? entries.filter(entry => !entry.isRead) : entries;
-  }, [entries, showUnreadOnly]);
+    let result = entries;
+    if (dismissedEntryIds.size > 0) {
+      result = result.filter(entry => !dismissedEntryIds.has(entry.id!));
+    }
+    if (showUnreadOnly) {
+      result = result.filter(entry => !entry.isRead);
+    }
+    return result;
+  }, [entries, showUnreadOnly, dismissedEntryIds]);
 
   // Update pagination state when page or entries change
   useEffect(() => {
@@ -537,6 +545,27 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       window.removeEventListener('entryReadChanged', handleReadChange as EventListener);
     };
   }, []);
+
+  // Handle mobile swipe-left dismiss: remove entry from rendered list
+  useEffect(() => {
+    const handleDismiss = (event: CustomEvent<{ entryId: number; index: number }>) => {
+      setDismissedEntryIds(prev => {
+        const next = new Set(prev);
+        next.add(event.detail.entryId);
+        return next;
+      });
+    };
+
+    window.addEventListener('mobileSwipeDismiss', handleDismiss as EventListener);
+    return () => {
+      window.removeEventListener('mobileSwipeDismiss', handleDismiss as EventListener);
+    };
+  }, []);
+
+  // Clear dismissed entries when route changes (navigating to different feed/view)
+  useEffect(() => {
+    setDismissedEntryIds(new Set());
+  }, [feedId, folderId, location.pathname]);
 
   // Add this effect to handle feed refreshes
   useEffect(() => {
