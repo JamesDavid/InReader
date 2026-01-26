@@ -159,40 +159,25 @@ export function useSwipeGesture(
         return;
       }
 
-      const startX = touchStartRef.current.x;
       touchStartRef.current = null;
+
+      // Read current state snapshot to decide action outside setState
+      let action: 'swipe-left' | 'reveal-right' | 'snap-back' | 'none' = 'none';
 
       setState(prev => {
         if (!prev.isSwiping) return prev;
 
         if (prev.direction === 'left') {
           if (Math.abs(prev.translateX) > swipeThreshold) {
-            // Animate off screen then fire callback
-            const offScreen = -window.innerWidth;
-            setTimeout(() => {
-              callbacksRef.current.onSwipeLeft();
-            }, 300);
-            // Reset state after animation
-            setTimeout(() => {
-              setState(s => ({
-                ...s,
-                translateX: 0,
-                isSwiping: false,
-                direction: null,
-                isTransitioning: false,
-              }));
-            }, 350);
+            action = 'swipe-left';
             return {
               ...prev,
-              translateX: offScreen,
+              translateX: -window.innerWidth,
               isTransitioning: true,
               isSwiping: false,
             };
           } else {
-            // Snap back
-            setTimeout(() => {
-              setState(s => ({ ...s, isTransitioning: false }));
-            }, 300);
+            action = 'snap-back';
             return {
               ...prev,
               translateX: 0,
@@ -205,12 +190,8 @@ export function useSwipeGesture(
 
         if (prev.direction === 'right') {
           if (prev.translateX > swipeRightMax / 2) {
-            // Snap to revealed position
+            action = 'reveal-right';
             isRevealedRef.current = true;
-            callbacksRef.current.onSwipeRight();
-            setTimeout(() => {
-              setState(s => ({ ...s, isTransitioning: false }));
-            }, 300);
             return {
               ...prev,
               translateX: swipeRightMax,
@@ -219,10 +200,7 @@ export function useSwipeGesture(
               isRevealed: true,
             };
           } else {
-            // Snap back
-            setTimeout(() => {
-              setState(s => ({ ...s, isTransitioning: false }));
-            }, 300);
+            action = 'snap-back';
             return {
               ...prev,
               translateX: 0,
@@ -235,6 +213,31 @@ export function useSwipeGesture(
 
         return { ...prev, isSwiping: false, direction: null };
       });
+
+      // Fire callbacks outside setState updater
+      if (action === 'swipe-left') {
+        setTimeout(() => {
+          callbacksRef.current.onSwipeLeft();
+        }, 300);
+        setTimeout(() => {
+          setState(s => ({
+            ...s,
+            translateX: 0,
+            isSwiping: false,
+            direction: null,
+            isTransitioning: false,
+          }));
+        }, 350);
+      } else if (action === 'reveal-right') {
+        callbacksRef.current.onSwipeRight();
+        setTimeout(() => {
+          setState(s => ({ ...s, isTransitioning: false }));
+        }, 300);
+      } else if (action === 'snap-back') {
+        setTimeout(() => {
+          setState(s => ({ ...s, isTransitioning: false }));
+        }, 300);
+      }
     };
 
     // Attach listeners imperatively for { passive: false } on touchmove
