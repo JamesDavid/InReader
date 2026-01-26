@@ -29,25 +29,22 @@ const SearchModal: React.FC<SearchModalProps> = ({
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedQuery = searchQuery.trim();
-    console.log('Handling search for:', trimmedQuery);
-    
+
     if (trimmedQuery) {
+      // Navigate and close synchronously before any await,
+      // so navigate() runs while the component is still mounted.
+      const searchPath = `/search/${encodeURIComponent(trimmedQuery)}`;
+      navigate(searchPath);
+      onClose();
+      setSearchQuery('');
+
+      // Save search history in background
       try {
-        onClose();
-        
-        console.log('Saving search...');
         await Promise.all([
           saveSearch(trimmedQuery),
           updateSearchResultCounts()
         ]);
-        
         onSearchHistoryUpdate();
-        
-        const searchPath = `/search/${encodeURIComponent(trimmedQuery)}`;
-        console.log('Navigating to:', searchPath);
-        navigate(searchPath);
-        
-        setSearchQuery('');
       } catch (error) {
         console.error('Error saving search:', error);
       }

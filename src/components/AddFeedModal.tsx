@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { addNewFeed } from '../services/feedParser';
 
 interface AddFeedModalProps {
@@ -27,6 +28,18 @@ const AddFeedModal: React.FC<AddFeedModalProps> = ({ isOpen, onClose, onSuccess,
       setError(null);
     }
   }, [isOpen]);
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -57,21 +70,21 @@ const AddFeedModal: React.FC<AddFeedModalProps> = ({ isOpen, onClose, onSuccess,
 
   const labelClass = `block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black opacity-30" onClick={onClose} />
-      <div className={`relative z-50 rounded-lg p-6 w-full max-w-md border-2 shadow-xl
-        ${isDarkMode 
-          ? 'bg-gray-800 border-gray-600' 
+      <div className={`relative z-50 rounded-lg p-6 w-full max-w-md mx-4 border-2 shadow-xl
+        ${isDarkMode
+          ? 'bg-gray-800 border-gray-600'
           : 'bg-white border-gray-200'}`}>
         <h2 className={`text-xl font-semibold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
           Add New Feed
         </h2>
-        
+
         <form onSubmit={handleSubmit}>
           <div className="mb-4">
-            <label 
-              htmlFor="url" 
+            <label
+              htmlFor="url"
               className={labelClass}
             >
               Feed URL
@@ -98,8 +111,8 @@ const AddFeedModal: React.FC<AddFeedModalProps> = ({ isOpen, onClose, onSuccess,
             <button
               type="button"
               onClick={onClose}
-              className={`btn ${isDarkMode 
-                ? 'bg-gray-700 border-gray-600 hover:bg-gray-600 text-gray-300' 
+              className={`btn ${isDarkMode
+                ? 'bg-gray-700 border-gray-600 hover:bg-gray-600 text-gray-300'
                 : 'bg-white border-gray-300 hover:bg-gray-100 text-gray-700'} border`}
               disabled={isLoading}
             >
@@ -115,7 +128,8 @@ const AddFeedModal: React.FC<AddFeedModalProps> = ({ isOpen, onClose, onSuccess,
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

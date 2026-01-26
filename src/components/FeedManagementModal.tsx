@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
 import { PlusIcon, FolderIcon, RssIcon, XMarkIcon, TrashIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, PencilIcon } from '@heroicons/react/24/outline';
 import { StrictModeDroppable } from './StrictModeDroppable';
@@ -284,6 +285,23 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showDeleted, setShowDeleted] = useState(false);
 
+  // Track editing state for Escape handler
+  const editingRef = useRef(false);
+  editingRef.current = editingItemId !== null;
+
+  // Close on Escape key (unless editing a name)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (editingRef.current) return; // Let input handler cancel edit first
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onClose]);
+
   // Initialize organization state and folder order
   useEffect(() => {
     // Only update if feeds or folders have actually changed
@@ -483,9 +501,9 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-white'} rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col`}>
+      <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-white'} rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[80vh] overflow-hidden flex flex-col`}>
         <div className="flex justify-between items-center mb-4">
           <h2 className={`text-xl font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
             Manage Feeds
@@ -669,8 +687,9 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
           </label>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
-export default FeedManagementModal; 
+export default FeedManagementModal;

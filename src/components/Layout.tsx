@@ -294,26 +294,31 @@ const Layout: React.FC = () => {
         return;
       }
 
+      // Always allow Escape to close modals, even when focused in inputs
+      if (e.key === 'Escape') {
+        if (isChatModalOpen) {
+          e.preventDefault();
+          setIsChatModalOpen(false);
+          setSelectedEntry(null);
+        } else if (isSearchModalOpen) {
+          e.preventDefault();
+          setIsSearchModalOpen(false);
+        } else if (isShortcutsModalOpen) {
+          e.preventDefault();
+          setIsShortcutsModalOpen(false);
+        } else if (showAddFeedModal) {
+          e.preventDefault();
+          setShowAddFeedModal(false);
+        }
+        return;
+      }
+
       // Block other shortcuts if in input or non-chat modal (including shortcuts modal)
       if (isInInput || (isModalOpen && !isChatModalOpen)) {
         return;
       }
 
       switch (e.key.toLowerCase()) {
-        case 'escape': {
-          e.preventDefault();
-          if (isChatModalOpen) {
-            setIsChatModalOpen(false);
-            setSelectedEntry(null);
-          } else if (isSearchModalOpen) {
-            setIsSearchModalOpen(false);
-          } else if (isShortcutsModalOpen) {
-            setIsShortcutsModalOpen(false);
-          } else if (showAddFeedModal) {
-            setShowAddFeedModal(false);
-          }
-          break;
-        }
         case 'j': {
           e.preventDefault();
           setLastNavigationKey('j');
