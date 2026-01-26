@@ -5,6 +5,18 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/openai/proxy",
+      "destination": "/api/openai-proxy"
+    },
+    {
+      "source": "/api/anthropic/proxy",
+      "destination": "/api/anthropic-proxy"
+    },
+    {
+      "source": "/api/ollama/proxy",
+      "destination": "/api/ollama-proxy"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/:path*"
     },
