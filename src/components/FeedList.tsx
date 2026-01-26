@@ -128,11 +128,12 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     loadPageEntries();
   }, [currentPage, isLoadingPage]); // Only depend on currentPage and isLoadingPage
 
-  // Add a separate effect to handle filtered entries updates
+  // Keep paginatedState.items in sync whenever filteredEntries changes
   useEffect(() => {
     if (isLoadingPage) return; // Don't update while loading
 
     if (props.entries || folderId || location.pathname.startsWith('/starred') || location.pathname.startsWith('/listened')) {
+      // For locally-paginated routes, slice from filteredEntries
       const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
       const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, filteredEntries.length);
       const pageItems = filteredEntries.slice(startIndex, endIndex);
@@ -143,6 +144,12 @@ const FeedList: React.FC<FeedListProps> = (props) => {
         totalItems: filteredEntries.length,
         itemsPerPage: ITEMS_PER_PAGE,
         totalPages: Math.ceil(filteredEntries.length / ITEMS_PER_PAGE)
+      }));
+    } else {
+      // For DB-paginated routes (All Items, Feed), apply the filter to current page entries
+      setPaginatedState(prev => ({
+        ...prev,
+        items: filteredEntries,
       }));
     }
   }, [filteredEntries, showUnreadOnly, props.entries, folderId, location.pathname, currentPage]);

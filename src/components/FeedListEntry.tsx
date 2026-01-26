@@ -53,6 +53,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   const [feedTitle, setFeedTitle] = useState(entry.feedTitle);
   const [isMobile, setIsMobile] = useState(false);
   const [bottomSheetOpen, setBottomSheetOpen] = useState(false);
+  const [isDismissing, setIsDismissing] = useState(false);
   const swipeContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,12 +64,32 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     return () => mql.removeEventListener('change', handler);
   }, []);
 
+  // Animate height collapse when dismissed via swipe
+  useEffect(() => {
+    if (!isDismissing || !articleRef.current) return;
+    const el = articleRef.current;
+    // Fix the height to current value
+    el.style.height = el.offsetHeight + 'px';
+    el.style.overflow = 'hidden';
+    // Next frame: animate to 0
+    requestAnimationFrame(() => {
+      el.style.transition = 'height 300ms ease-out, opacity 300ms ease-out';
+      el.style.height = '0px';
+      el.style.opacity = '0';
+    });
+  }, [isDismissing]);
+
   const handleSwipeLeft = useCallback(() => {
     if (!currentEntry.id) return;
+    // Start height collapse animation
+    setIsDismissing(true);
     onMarkAsRead(currentEntry.id, true);
-    window.dispatchEvent(new CustomEvent('mobileSwipeDismiss', {
-      detail: { entryId: currentEntry.id, index }
-    }));
+    // Delay the advance event so the collapse animation plays first
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('mobileSwipeDismiss', {
+        detail: { entryId: currentEntry.id, index }
+      }));
+    }, 200);
   }, [currentEntry.id, index, onMarkAsRead]);
 
   const handleSwipeLongPress = useCallback(() => {
