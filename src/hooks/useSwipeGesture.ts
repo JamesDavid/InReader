@@ -216,10 +216,8 @@ export function useSwipeGesture(
 
       // Fire callbacks outside setState updater
       if (action === 'swipe-left') {
-        setTimeout(() => {
-          callbacksRef.current.onSwipeLeft();
-        }, 300);
-        // No translateX reset — the entry collapses via its own CSS animation
+        // Fire immediately so height collapse starts simultaneously with slide-off
+        callbacksRef.current.onSwipeLeft();
       } else if (action === 'reveal-right') {
         callbacksRef.current.onSwipeRight();
         setTimeout(() => {

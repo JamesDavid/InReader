@@ -53,7 +53,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   const [feedTitle, setFeedTitle] = useState(entry.feedTitle);
   const [isMobile, setIsMobile] = useState(false);
   const [bottomSheetOpen, setBottomSheetOpen] = useState(false);
-  const [isDismissing, setIsDismissing] = useState(false);
+  const collapseRef = useRef<HTMLDivElement>(null);
   const swipeContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -66,15 +66,25 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
 
   const handleSwipeLeft = useCallback(() => {
     if (!currentEntry.id) return;
-    // Start height collapse animation immediately
-    setIsDismissing(true);
-    onMarkAsRead(currentEntry.id, true);
-    // Dispatch advance after collapse animation completes
+    // Imperative height collapse — starts simultaneously with slide-off.
+    // We defer onMarkAsRead to avoid React re-renders during the animation.
+    const el = collapseRef.current;
+    if (el) {
+      const h = el.getBoundingClientRect().height;
+      el.style.overflow = 'hidden';
+      el.style.height = h + 'px';
+      // Force reflow so the browser registers the explicit height
+      void el.offsetHeight;
+      el.style.transition = 'height 300ms ease-out';
+      el.style.height = '0px';
+    }
+    // After collapse animation finishes, mark read and advance
     setTimeout(() => {
+      onMarkAsRead(currentEntry.id!, true);
       window.dispatchEvent(new CustomEvent('mobileSwipeDismiss', {
         detail: { entryId: currentEntry.id, index }
       }));
-    }, 300);
+    }, 320);
   }, [currentEntry.id, index, onMarkAsRead]);
 
   const handleSwipeLongPress = useCallback(() => {
@@ -514,10 +524,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   }, [currentEntry, isSelected, feedTitle]);
 
   return (
-    <div
-      className={`grid transition-[grid-template-rows] duration-300 ease-out ${isDismissing ? 'grid-rows-[0fr]' : 'grid-rows-[1fr]'}`}
-    >
-    <div className="overflow-hidden">
+    <div ref={collapseRef}>
     <article
       ref={articleRef}
       data-index={index}
@@ -950,7 +957,6 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
         />
       )}
     </article>
-    </div>
     </div>
   );
 };
