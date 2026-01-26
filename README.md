@@ -66,6 +66,8 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 - `o` - Open article in new tab
 - `0` - Open article in reusable window
 - `u` - Refresh current article content and summary
+- `'` - Copy article to clipboard
+- `-` - Email article
 - `r` - Refresh all feeds
 - `a` - Add new feed
 

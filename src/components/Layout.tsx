@@ -420,29 +420,34 @@ const Layout: React.FC = () => {
           }
           break;
         }
-        case ' ':
-        case '\'': {
+        case ' ': {
           e.preventDefault();
           if (!sidebarFocused && selectedEntryId !== null) {
             // Check if chat modal is open
             const chatModal = document.querySelector('[data-chat-modal]');
             if (chatModal) {
-              // Dispatch event for chat modal to handle scrolling
               window.dispatchEvent(new CustomEvent('chatModalScroll', {
                 detail: { direction: lastNavigationKey === 'j' ? 'down' : 'up' }
               }));
               return;
             }
 
-            console.log('Copy hotkey pressed:', e.key);
-            // If chat modal is not open, copy the article
+            // Expand / progressive scroll the selected entry
+            window.dispatchEvent(new CustomEvent('toggleEntryExpand', {
+              detail: { entryId: selectedEntryId }
+            }));
+          }
+          break;
+        }
+        case '\'': {
+          e.preventDefault();
+          if (!sidebarFocused && selectedEntryId !== null) {
             const entry = await db.entries.get(selectedEntryId);
             if (entry) {
-              console.log('Found entry to copy:', entry.title);
               const feed = await db.feeds.get(entry.feedId!);
               const feedTitle = feed?.title || 'Unknown Feed';
               const fullEntry = { ...entry, feedTitle };
-              
+
               const formatForSharing = (entry: FeedEntryWithTitle): string => {
                 const formatDate = (date: Date) => {
                   return date.toLocaleDateString('en-US', {
@@ -459,7 +464,7 @@ const Layout: React.FC = () => {
                   `Source: ${entry.link}`,
                   '',
                   entry.content_aiSummary ? `\nSummary${
-                    entry.aiSummaryMetadata?.model 
+                    entry.aiSummaryMetadata?.model
                       ? ` (${entry.aiSummaryMetadata.model} - ${
                           entry.aiSummaryMetadata.isFullContent ? 'Full article' : 'RSS preview'
                         })`
@@ -476,7 +481,7 @@ const Layout: React.FC = () => {
               const content = formatForSharing(fullEntry);
               await navigator.clipboard.writeText(content);
               window.dispatchEvent(new CustomEvent('showToast', {
-                detail: { 
+                detail: {
                   message: 'Article copied to clipboard',
                   type: 'success'
                 }
