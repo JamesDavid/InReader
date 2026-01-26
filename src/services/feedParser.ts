@@ -1,7 +1,7 @@
 import { addEntry, addFeed, type Feed, type FeedEntry, db, notifyEntryUpdate } from './db';
 import { enqueueRequest, getQueueStats } from './requestQueueService';
 import { fetchArticleContent } from './articleService';
-import { generateSummary, loadOllamaConfig } from './ollamaService';
+import { generateSummary, loadAIConfig } from './aiService';
 import TurndownService from 'turndown';
 
 // Use relative URL so it works through nginx proxy in production
@@ -104,18 +104,23 @@ async function processEntry(entryId: number) {
       }
     }
 
-    // Step 2: Generate AI summary if Ollama is configured
-    console.log('Loading Ollama config for:', entry.title);
-    const config = loadOllamaConfig();
-    if (!config || !config.serverUrl || !config.summaryModel) {
-      console.log('Ollama not configured, skipping summary generation for:', entry.title);
+    // Step 2: Generate AI summary if AI is configured
+    console.log('Loading AI config for:', entry.title);
+    const config = loadAIConfig();
+    const isConfigured = config && config.summaryModel && (
+      (config.provider === 'ollama' && config.serverUrl) ||
+      (config.provider === 'openai' && config.openaiApiKey) ||
+      (config.provider === 'anthropic' && config.anthropicApiKey)
+    );
+    if (!isConfigured) {
+      console.log('AI not configured, skipping summary generation for:', entry.title);
       await db.entries.update(entryId, {
         requestProcessingStatus: 'failed',
         lastRequestAttempt: new Date(),
         requestError: {
-          message: 'Ollama not configured - please configure Ollama settings first',
+          message: 'AI not configured - please configure AI settings first',
           code: 'NO_CONFIG',
-          details: 'Open settings to configure Ollama server and models'
+          details: 'Open settings to configure an AI provider and models'
         }
       });
       notifyEntryUpdate(entryId);
@@ -240,10 +245,15 @@ export const reprocessEntry = async (entryId: number) => {
     throw new Error('Entry not found');
   }
 
-  // Check if Ollama is configured
-  const config = loadOllamaConfig();
-  if (!config || !config.serverUrl || !config.summaryModel) {
-    throw new Error('Ollama not configured - please configure Ollama settings first');
+  // Check if AI is configured
+  const config = loadAIConfig();
+  const isConfigured = config && config.summaryModel && (
+    (config.provider === 'ollama' && config.serverUrl) ||
+    (config.provider === 'openai' && config.openaiApiKey) ||
+    (config.provider === 'anthropic' && config.anthropicApiKey)
+  );
+  if (!isConfigured) {
+    throw new Error('AI not configured - please configure AI settings first');
   }
 
   // Reset the entry's processing status but preserve full article content if it exists

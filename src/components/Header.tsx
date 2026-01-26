@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import OllamaConfigModal from './OllamaConfigModal';
+import AIConfigModal from './AIConfigModal';
 import VoiceConfigModal from './VoiceConfigModal';
 import GunConfigModal from './GunConfigModal';
 import TTSQueueStatus from './TTSQueueStatus';
@@ -77,7 +77,7 @@ const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      <header className={`h-14 border-b ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-reader-border'} flex items-center px-4 justify-between`}>
+      <header className={`h-14 flex-shrink-0 sticky top-0 z-40 border-b ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-reader-border'} flex items-center px-4 justify-between`}>
         <div className="flex items-center gap-4">
           {/* Hamburger menu button - visible only on mobile */}
           <button
@@ -172,7 +172,7 @@ const Header: React.FC<HeaderProps> = ({
         </div>
       </header>
 
-      <OllamaConfigModal
+      <AIConfigModal
         isOpen={isOllamaModalOpen}
         onClose={() => setIsOllamaModalOpen(false)}
         isDarkMode={isDarkMode}

@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { Tab } from '@headlessui/react';
-import { testConnection, getAvailableModels, saveOllamaConfig, loadOllamaConfig, type OllamaConfig } from '../services/ollamaService';
+import {
+  testOllamaConnection,
+  testOpenAIConnection,
+  testAnthropicConnection,
+  getAvailableModels,
+  saveAIConfig,
+  loadAIConfig,
+  type AIConfig
+} from '../services/aiService';
 import { clearAllAISummaries } from '../services/db';
 import { getQueueStats, clearQueue, initializeQueue } from '../services/requestQueueService';
 
-interface OllamaConfigModalProps {
+interface AIConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
   isDarkMode: boolean;
@@ -28,49 +36,56 @@ const defaultSystemPrompts = {
   itemRecommender: "You are an AI that recommends articles based on user's reading history and interests."
 };
 
-const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, isDarkMode }) => {
+const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMode }) => {
+  // Provider state
+  const [provider, setProvider] = useState<AIConfig['provider']>('ollama');
+
   // Server and connection states
   const [serverUrl, setServerUrl] = useState('http://localhost:11434');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [availableModels, setAvailableModels] = useState<{ name: string }[]>([]);
-  
+
   // Model states
   const [summaryModel, setSummaryModel] = useState('');
   const [chatModel, setChatModel] = useState('');
   const [historyAnalyzerModel, setHistoryAnalyzerModel] = useState('');
   const [itemRecommenderModel, setItemRecommenderModel] = useState('');
-  
+
   // Prompt states
   const [summarySystemPrompt, setSummarySystemPrompt] = useState(defaultSystemPrompts.summary);
   const [chatSystemPrompt, setChatSystemPrompt] = useState(defaultSystemPrompts.chat);
   const [historyAnalyzerPrompt, setHistoryAnalyzerPrompt] = useState(defaultSystemPrompts.historyAnalyzer);
   const [itemRecommenderPrompt, setItemRecommenderPrompt] = useState(defaultSystemPrompts.itemRecommender);
-  
+
   // Queue states
   const [maxConcurrentRequests, setMaxConcurrentRequests] = useState(2);
   const [isClearing, setIsClearing] = useState(false);
   const [clearMessage, setClearMessage] = useState<string | null>(null);
-  const [queueStats, setQueueStats] = useState<{ size: number; pending: number; requests: QueuedRequest[] }>({ 
-    size: 0, 
-    pending: 0, 
-    requests: [] 
+  const [queueStats, setQueueStats] = useState<{ size: number; pending: number; requests: QueuedRequest[] }>({
+    size: 0,
+    pending: 0,
+    requests: []
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
-    const config = loadOllamaConfig();
+    const config = loadAIConfig();
     if (config) {
-      setServerUrl(config.serverUrl);
+      setProvider(config.provider || 'ollama');
+      setServerUrl(config.serverUrl || 'http://localhost:11434');
+      setOpenaiApiKey(config.openaiApiKey || '');
+      setAnthropicApiKey(config.anthropicApiKey || '');
       setSummaryModel(config.summaryModel);
       setChatModel(config.chatModel);
       setSummarySystemPrompt(config.summarySystemPrompt || defaultSystemPrompts.summary);
       setChatSystemPrompt(config.chatSystemPrompt || defaultSystemPrompts.chat);
       setMaxConcurrentRequests(config.maxConcurrentRequests || 2);
-      // Initialize queue with saved concurrency
       initializeQueue(config.maxConcurrentRequests || 2);
       // Test connection on load if we have a saved config
-      handleTestConnection(config.serverUrl, config.summaryModel, config.chatModel);
+      handleTestConnection(config.provider || 'ollama', config.serverUrl, config.summaryModel, config.chatModel);
     }
   }, []);
 
@@ -78,33 +93,46 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
     if (isOpen) {
       const refreshStats = () => {
         const stats = getQueueStats();
-        console.log('OllamaConfigModal - Refreshing queue stats:', stats);
-        console.log('OllamaConfigModal - Queue requests:', stats.requests);
         setQueueStats(stats);
       };
-
-      // Initial refresh
       refreshStats();
-
-      // Refresh every second while modal is open
       const interval = setInterval(refreshStats, 1000);
       return () => clearInterval(interval);
     }
   }, [isOpen]);
 
-  const handleTestConnection = async (url: string, currentSummaryModel?: string, currentChatModel?: string) => {
+  const handleTestConnection = async (
+    prov: AIConfig['provider'],
+    url?: string,
+    currentSummaryModel?: string,
+    currentChatModel?: string
+  ) => {
     setIsConnecting(true);
-    const connected = await testConnection(url);
+    setIsConnected(false);
+
+    let connected = false;
+    switch (prov) {
+      case 'openai':
+        connected = await testOpenAIConnection(openaiApiKey);
+        break;
+      case 'anthropic':
+        connected = await testAnthropicConnection(anthropicApiKey);
+        break;
+      case 'ollama':
+      default:
+        connected = await testOllamaConnection(url || serverUrl);
+        break;
+    }
+
     setIsConnected(connected);
     setIsConnecting(false);
 
     if (connected) {
-      const models = await getAvailableModels(url);
+      const models = await getAvailableModels(prov, url || serverUrl);
       setAvailableModels(models);
-      
+
       const modelNames = models.map(m => m.name);
-      
-      // Preserve current model selections if they're still available
+
       if (currentSummaryModel && modelNames.includes(currentSummaryModel)) {
         setSummaryModel(currentSummaryModel);
       } else if (models.length > 0) {
@@ -119,22 +147,34 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
     }
   };
 
+  // Reset connection when provider changes
+  const handleProviderChange = async (newProvider: AIConfig['provider']) => {
+    setProvider(newProvider);
+    setIsConnected(false);
+    setAvailableModels([]);
+    setSummaryModel('');
+    setChatModel('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isConnected) {
-      handleTestConnection(serverUrl, summaryModel, chatModel);
+      handleTestConnection(provider, serverUrl, summaryModel, chatModel);
       return;
     }
 
-    const config: OllamaConfig = {
+    const config: AIConfig = {
+      provider,
       serverUrl,
+      openaiApiKey: openaiApiKey || undefined,
+      anthropicApiKey: anthropicApiKey || undefined,
       summaryModel,
       chatModel,
       summarySystemPrompt,
       chatSystemPrompt,
       maxConcurrentRequests
     };
-    saveOllamaConfig(config);
+    saveAIConfig(config);
     onClose();
   };
 
@@ -155,8 +195,6 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
   const handleRefreshStats = () => {
     setIsRefreshing(true);
     const stats = getQueueStats();
-    console.log('OllamaConfigModal - Manually refreshing queue stats:', stats);
-    console.log('OllamaConfigModal - Queue requests:', stats.requests);
     setQueueStats(stats);
     setTimeout(() => setIsRefreshing(false), 500);
   };
@@ -166,21 +204,28 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
     setQueueStats(getQueueStats());
   };
 
+  const getConnectButtonLabel = () => {
+    if (isConnecting) return 'Connecting...';
+    if (isConnected) return 'Reconnect';
+    if (provider === 'ollama') return 'Connect';
+    return 'Test Key';
+  };
+
   const inputClass = `w-full px-3 py-2 rounded border focus:outline-none focus:ring-2 focus:ring-reader-blue
-    ${isDarkMode 
-      ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' 
+    ${isDarkMode
+      ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400'
       : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}`;
 
   const labelClass = `block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`;
 
   const tabClass = `w-full py-2.5 text-sm font-medium leading-5 rounded-lg
     focus:outline-none focus:ring-2 ring-offset-2 ring-offset-reader-blue ring-white ring-opacity-60
-    ${isDarkMode 
-      ? 'text-gray-300 hover:bg-gray-700' 
+    ${isDarkMode
+      ? 'text-gray-300 hover:bg-gray-700'
       : 'text-gray-700 hover:bg-gray-100'}`;
 
-  const selectedTabClass = `${tabClass} ${isDarkMode 
-    ? 'bg-gray-700 text-white' 
+  const selectedTabClass = `${tabClass} ${isDarkMode
+    ? 'bg-gray-700 text-white'
     : 'bg-white shadow text-reader-blue'}`;
 
   if (!isOpen) return null;
@@ -189,38 +234,149 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black opacity-30" onClick={onClose} />
       <div className={`relative z-50 rounded-lg p-6 w-full max-w-2xl border-2 shadow-xl overflow-y-auto max-h-[90vh]
-        ${isDarkMode 
-          ? 'bg-gray-800 border-gray-600' 
+        ${isDarkMode
+          ? 'bg-gray-800 border-gray-600'
           : 'bg-white border-gray-200'}`}>
         <h2 className={`text-xl font-semibold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-          Ollama Configuration
+          AI Configuration
         </h2>
-        
+
         <form onSubmit={handleSubmit}>
-          {/* Server Configuration - Always visible */}
+          {/* Provider Selector */}
           <div className="mb-4">
-            <label htmlFor="serverUrl" className={labelClass}>
-              Server URL
+            <label htmlFor="provider" className={labelClass}>
+              AI Provider
             </label>
-            <div className="flex gap-2">
-              <input
-                type="url"
-                id="serverUrl"
-                value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
-                className={inputClass}
-                placeholder="http://localhost:11434"
-                required
-              />
-              <button
-                type="button"
-                onClick={() => handleTestConnection(serverUrl)}
-                className="btn btn-blue whitespace-nowrap"
-                disabled={isConnecting}
-              >
-                {isConnecting ? 'Connecting...' : (isConnected ? 'Reconnect' : 'Connect')}
-              </button>
-            </div>
+            <select
+              id="provider"
+              value={provider}
+              onChange={(e) => handleProviderChange(e.target.value as AIConfig['provider'])}
+              className={inputClass}
+            >
+              <option value="ollama">Ollama (Local)</option>
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic</option>
+            </select>
+          </div>
+
+          {/* Connection Configuration - varies by provider */}
+          <div className="mb-4">
+            {provider === 'ollama' && (
+              <>
+                <label htmlFor="serverUrl" className={labelClass}>
+                  Server URL
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    id="serverUrl"
+                    value={serverUrl}
+                    onChange={(e) => setServerUrl(e.target.value)}
+                    className={inputClass}
+                    placeholder="http://localhost:11434"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleTestConnection('ollama', serverUrl)}
+                    className="btn btn-blue whitespace-nowrap"
+                    disabled={isConnecting}
+                  >
+                    {getConnectButtonLabel()}
+                  </button>
+                </div>
+                {/* Warning for cloud-hosted + private IP */}
+                {(() => {
+                  const host = window.location.hostname;
+                  const isCloud = host.endsWith('.vercel.app') || host.endsWith('.netlify.app');
+                  const isPrivate = /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|localhost|127\.0\.0\.1)/.test(
+                    (() => { try { return new URL(serverUrl).hostname; } catch { return ''; } })()
+                  );
+                  if (isCloud && isPrivate) {
+                    return (
+                      <p className={`text-sm mt-2 ${isDarkMode ? 'text-yellow-400' : 'text-yellow-600'}`}>
+                        Cloud-hosted apps cannot reach private/LAN addresses like {serverUrl}. Use the Docker deployment for LAN Ollama servers, or expose your Ollama server publicly (e.g., via Cloudflare Tunnel).
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
+              </>
+            )}
+
+            {provider === 'openai' && (
+              <>
+                <label htmlFor="openaiApiKey" className={labelClass}>
+                  OpenAI API Key
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    id="openaiApiKey"
+                    value={openaiApiKey}
+                    onChange={(e) => setOpenaiApiKey(e.target.value)}
+                    className={inputClass}
+                    placeholder="sk-..."
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleTestConnection('openai')}
+                    className="btn btn-blue whitespace-nowrap"
+                    disabled={isConnecting || !openaiApiKey}
+                  >
+                    {getConnectButtonLabel()}
+                  </button>
+                </div>
+                <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Your API key is stored locally and sent through a server proxy for each request.
+                </p>
+              </>
+            )}
+
+            {provider === 'anthropic' && (
+              <>
+                <label htmlFor="anthropicApiKey" className={labelClass}>
+                  Anthropic API Key
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    id="anthropicApiKey"
+                    value={anthropicApiKey}
+                    onChange={(e) => setAnthropicApiKey(e.target.value)}
+                    className={inputClass}
+                    placeholder="sk-ant-..."
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleTestConnection('anthropic')}
+                    className="btn btn-blue whitespace-nowrap"
+                    disabled={isConnecting || !anthropicApiKey}
+                  >
+                    {getConnectButtonLabel()}
+                  </button>
+                </div>
+                <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Your API key is stored locally and sent through a server proxy for each request.
+                </p>
+              </>
+            )}
+
+            {/* Connection status indicator */}
+            {isConnected && (
+              <p className={`text-sm mt-2 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>
+                Connected successfully
+              </p>
+            )}
+            {clearMessage && (
+              <p className={`text-sm mt-2 ${clearMessage.includes('Failed')
+                ? (isDarkMode ? 'text-red-400' : 'text-red-600')
+                : (isDarkMode ? 'text-green-400' : 'text-green-600')}`}>
+                {clearMessage}
+              </p>
+            )}
           </div>
 
           <Tab.Group>
@@ -408,7 +564,7 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
                       required
                     />
                     <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      Limit concurrent requests to Ollama server (1-10)
+                      Limit concurrent AI requests (1-10)
                     </p>
                   </div>
 
@@ -423,8 +579,8 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
                         type="button"
                         onClick={handleRefreshStats}
                         className={`px-2 py-1 rounded text-sm transition-colors ${
-                          isDarkMode 
-                            ? 'hover:bg-gray-600 text-gray-300' 
+                          isDarkMode
+                            ? 'hover:bg-gray-600 text-gray-300'
                             : 'hover:bg-gray-200 text-gray-600'
                         }`}
                         disabled={isRefreshing}
@@ -460,10 +616,10 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
                             }))
                             .sort((a, b) => b.addedAt.getTime() - a.addedAt.getTime())
                             .map((request) => (
-                              <div 
+                              <div
                                 key={`${request.entryId}-${request.addedAt.getTime()}`}
                                 className={`p-2 rounded ${
-                                  request.status === 'processing' 
+                                  request.status === 'processing'
                                     ? (isDarkMode ? 'bg-blue-900/30' : 'bg-blue-50')
                                     : request.status === 'failed'
                                     ? (isDarkMode ? 'bg-red-900/30' : 'bg-red-50')
@@ -516,8 +672,8 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
                   type="button"
                   onClick={handleClearSummaries}
                   disabled={isClearing}
-                  className={`btn ${isDarkMode 
-                    ? 'bg-red-900/80 text-red-100 hover:bg-red-800' 
+                  className={`btn ${isDarkMode
+                    ? 'bg-red-900/80 text-red-100 hover:bg-red-800'
                     : 'bg-red-100 text-red-700 hover:bg-red-200'}`}
                 >
                   {isClearing ? 'Clearing Summaries...' : 'Clear All AI Summaries'}
@@ -528,8 +684,8 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
               <button
                 type="button"
                 onClick={onClose}
-                className={`btn ${isDarkMode 
-                  ? 'bg-gray-700 border-gray-600 hover:bg-gray-600 text-gray-300' 
+                className={`btn ${isDarkMode
+                  ? 'bg-gray-700 border-gray-600 hover:bg-gray-600 text-gray-300'
                   : 'bg-white border-gray-300 hover:bg-gray-100 text-gray-700'} border`}
               >
                 Cancel
@@ -550,4 +706,4 @@ const OllamaConfigModal: React.FC<OllamaConfigModalProps> = ({ isOpen, onClose, 
   );
 };
 
-export default OllamaConfigModal; 
+export default AIConfigModal;

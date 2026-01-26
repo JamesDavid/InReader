@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { db, type ChatMessage } from '../services/db';
-import { loadOllamaConfig, shouldUseProxy, proxyFetch } from '../services/ollamaService';
+import { loadAIConfig, chatFetch } from '../services/aiService';
 
 interface ChatModalProps {
   isOpen: boolean;
@@ -168,9 +168,9 @@ const ChatModal: React.FC<ChatModalProps> = ({
     if (!fullArticleContent) return;
 
     try {
-      const config = loadOllamaConfig();
+      const config = loadAIConfig();
       if (!config) {
-        throw new Error('Ollama configuration not found');
+        throw new Error('AI configuration not found');
       }
 
       setActiveModel(config.chatModel);
@@ -270,12 +270,12 @@ const ChatModal: React.FC<ChatModalProps> = ({
     setError(null);
 
     try {
-      const config = loadOllamaConfig();
+      const config = loadAIConfig();
       if (!config) {
-        throw new Error('Ollama configuration not found');
+        throw new Error('AI configuration not found');
       }
 
-      // Filter and format messages for Ollama API
+      // Filter and format messages for AI API
       const apiMessages = [
         // Always include system message with article content
         {
@@ -291,28 +291,12 @@ const ChatModal: React.FC<ChatModalProps> = ({
           }))
       ];
 
-      // Send request to Ollama
-      const targetUrl = `${config.serverUrl}/api/chat`;
-      const requestBody = {
-        model: config.chatModel,
-        messages: apiMessages,
-        stream: true
-      };
-
-      let response: Response;
-      if (shouldUseProxy(config.serverUrl)) {
-        response = await proxyFetch(targetUrl, 'POST', requestBody);
-      } else {
-        response = await fetch(targetUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
-        });
-      }
+      // Send request to AI provider
+      const response = await chatFetch(config, apiMessages, true);
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Failed to get response from Ollama: ${errorText}`);
+        throw new Error(`Failed to get response: ${errorText}`);
       }
 
       const reader = response.body?.getReader();
@@ -344,7 +328,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
         for (const line of lines) {
           try {
             const json = JSON.parse(line);
-            // Handle both old and new Ollama API formats
+            // Handle both Ollama NDJSON and normalized proxy formats
             const responseContent = json.response || json.message?.content || '';
             if (responseContent) {
               responseText += responseContent;
@@ -594,9 +578,9 @@ const ChatModal: React.FC<ChatModalProps> = ({
                         setMessages(updatedMessages);
                         setIsTyping(true); // Show typing indicator
 
-                        const config = loadOllamaConfig();
+                        const config = loadAIConfig();
                         if (!config) {
-                          throw new Error('Ollama configuration not found');
+                          throw new Error('AI configuration not found');
                         }
 
                         const apiMessages = [
@@ -612,27 +596,11 @@ const ChatModal: React.FC<ChatModalProps> = ({
                             }))
                         ];
 
-                        const targetUrl = `${config.serverUrl}/api/chat`;
-                        const requestBody = {
-                          model: config.chatModel,
-                          messages: apiMessages,
-                          stream: true
-                        };
-
-                        let response: Response;
-                        if (shouldUseProxy(config.serverUrl)) {
-                          response = await proxyFetch(targetUrl, 'POST', requestBody);
-                        } else {
-                          response = await fetch(targetUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(requestBody)
-                          });
-                        }
+                        const response = await chatFetch(config, apiMessages, true);
 
                         if (!response.ok) {
                           const errorText = await response.text();
-                          throw new Error(`Failed to get response from Ollama: ${errorText}`);
+                          throw new Error(`Failed to get response: ${errorText}`);
                         }
 
                         const reader = response.body?.getReader();

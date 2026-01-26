@@ -1,7 +1,7 @@
 import { enqueueRequest } from './requestQueueService';
 import TurndownService from 'turndown';
 import { db, type FeedEntry, notifyEntryUpdate } from './db';
-import { loadOllamaConfig, generateSummaryWithFallback } from './ollamaService';
+import { loadAIConfig, generateSummaryWithFallback } from './aiService';
 
 // Use relative URL so it works through nginx proxy in production
 const API_URL = '/api';
@@ -121,8 +121,8 @@ export async function processEntryForSummary(entryId: number): Promise<void> {
       const entry = await db.entries.get(entryId);
       if (!entry) throw new Error('Entry not found');
 
-      const config = loadOllamaConfig();
-      if (!config) throw new Error('Ollama configuration not found');
+      const config = loadAIConfig();
+      if (!config) throw new Error('AI configuration not found');
 
       // Generate summary with automatic fallback
       const { summary, isFullContent } = await generateSummaryWithFallback(
