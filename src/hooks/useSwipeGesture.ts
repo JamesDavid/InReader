@@ -75,19 +75,11 @@ export function useSwipeGesture(
     if (!el || !enabled) return;
 
     const handleTouchStart = (e: TouchEvent) => {
-      // If revealed and tapping, close the strip
+      // If revealed, any touch on the content area dismisses the strip.
+      // The action strip buttons are sibling elements and handle their own events.
       if (isRevealedRef.current) {
-        // Check if the tap is on the content (not the action strip)
-        const touch = e.touches[0];
-        const rect = el.getBoundingClientRect();
-        // The action strip is on the left side, content is shifted right
-        // If tapping on the shifted content area, reset
-        if (touch.clientX > rect.left + swipeRightMax) {
-          e.preventDefault();
-          resetReveal();
-          return;
-        }
-        // Otherwise let the action strip handle the tap
+        e.preventDefault();
+        resetReveal();
         return;
       }
 

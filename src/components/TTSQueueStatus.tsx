@@ -70,7 +70,7 @@ const TTSQueueStatus: React.FC<TTSQueueStatusProps> = ({ isDarkMode }) => {
         title={currentArticle ? `Now Playing: ${currentArticle.title} - ${currentArticle.source}` : "TTS Queue Status"}
       >
         {currentArticle && (
-          <div className="flex flex-col items-start">
+          <div className="hidden sm:flex flex-col items-start">
             <div className="text-sm truncate max-w-[200px]">
               {currentArticle.title}
             </div>

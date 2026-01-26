@@ -536,28 +536,35 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
           : ''}`}
       style={{ cursor: isChatOpen ? 'default' : 'pointer' }}
     >
-      {/* Action strip behind content (mobile only) */}
+      {/* Action strip behind content (mobile only), clipped to swipe progress */}
       {isMobile && (swipeState.direction === 'right' || swipeState.isRevealed) && (
-        <EntryActionStrip
-          isDarkMode={isDarkMode}
-          isStarred={!!currentEntry.isStarred}
-          onStar={() => onToggleStar(currentEntry.id!)}
-          onChat={() => onOpenChat?.(currentEntry)}
-          onListen={() => {
-            const content = currentEntry.content_fullArticle || currentEntry.content_rssAbstract;
-            if (content && currentEntry.id) {
-              ttsService.addToQueue({
-                id: currentEntry.id,
-                title: currentEntry.title,
-                content_fullArticle: currentEntry.content_fullArticle,
-                content_rssAbstract: currentEntry.content_rssAbstract,
-                content_aiSummary: currentEntry.content_aiSummary,
-                feedTitle: feedTitle
-              });
-            }
-          }}
-          onDone={resetReveal}
-        />
+        <div
+          className={`absolute inset-y-0 left-0 overflow-hidden z-10 ${
+            swipeState.isTransitioning ? 'transition-[width] duration-300' : ''
+          }`}
+          style={{ width: Math.max(0, swipeState.translateX) }}
+        >
+          <EntryActionStrip
+            isDarkMode={isDarkMode}
+            isStarred={!!currentEntry.isStarred}
+            onStar={() => onToggleStar(currentEntry.id!)}
+            onChat={() => onOpenChat?.(currentEntry)}
+            onListen={() => {
+              const content = currentEntry.content_fullArticle || currentEntry.content_rssAbstract;
+              if (content && currentEntry.id) {
+                ttsService.addToQueue({
+                  id: currentEntry.id,
+                  title: currentEntry.title,
+                  content_fullArticle: currentEntry.content_fullArticle,
+                  content_rssAbstract: currentEntry.content_rssAbstract,
+                  content_aiSummary: currentEntry.content_aiSummary,
+                  feedTitle: feedTitle
+                });
+              }
+            }}
+            onDone={resetReveal}
+          />
+        </div>
       )}
 
       {/* Swipeable content layer */}
