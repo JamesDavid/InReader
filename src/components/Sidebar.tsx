@@ -167,6 +167,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const mainItems = [
     { path: '/', title: 'All Items' },
+    { path: '/recommended', title: 'Recommended' },
     { path: '/starred', title: 'Starred' },
     { path: '/listened', title: 'Listened' },
     { path: '/chats', title: 'Chats' }

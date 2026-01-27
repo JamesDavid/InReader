@@ -9,9 +9,11 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 ### 🎯 Core Features
 - **Smart Feed Management** - Subscribe, organize, and refresh feeds with automatic content extraction
 - **Feed Organization** - Folder support with drag-and-drop organization
+- **OPML Import/Export** - Import feeds from other readers or export your subscriptions as standard OPML files
 - **Visual Feed Status** - Color-coded unread badges to track content freshness
 - **Full Article Extraction** - Automatic fetching of complete article content
 - **AI-Powered Summaries** - Local LLM summaries via Ollama integration (supports LAN servers)
+- **AI Interest Tagging & Recommendations** - Articles are automatically tagged by the AI during summarization. Star or listen to articles to build an interest profile, and discover new content in the Recommended view
 - **Chat with Articles** - Interactive AI discussions about article content
 - **Keyboard-First Design** - Vim-style navigation and comprehensive shortcuts
 - **Mobile Touch Gestures** - Swipe left to mark read & advance, swipe right for quick actions, long press for all actions
@@ -42,6 +44,18 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 - Streaming chat responses with history tracking
 - Queue-based TTS playback with progress tracking
 - Automatic duplicate detection in TTS queue
+
+#### Interest Tagging & Recommendations
+- AI summaries automatically extract topic tags from each article (3–8 tags per article)
+- Starring or listening to an article adds its tags to your interest profile
+- All tagged articles are scored against your profile — higher overlap means a higher score
+- The **Recommended** sidebar view surfaces unread articles ranked by interest score
+- Manage your interest profile in the AI Configuration → Recommendations tab: view collected tags with counts, delete individual tags, re-score entries, or clear the entire profile
+
+#### OPML Import & Export
+- **Import** — Load subscriptions from any standard OPML file exported by another feed reader. Feeds are mapped to folders based on the OPML outline structure, and duplicates are skipped automatically.
+- **Export** — Download all your current subscriptions as an `.opml` file for backup or migration to another reader.
+- Access both via the folder icon in the Subscriptions sidebar header.
 
 #### Data & Search
 - IndexedDB storage with automatic migrations
@@ -175,19 +189,25 @@ To use AI-powered summaries and chat:
 ```
 src/
 ├── components/
-│   ├── Layout.tsx        # Main layout and keyboard navigation
-│   ├── Sidebar.tsx       # Feed navigation and selection management
-│   ├── FeedList.tsx      # Entry display and interaction
-│   ├── SearchResults.tsx # Search functionality
-│   ├── Header.tsx        # Search and dark mode
-│   ├── ChatModal.tsx     # Article chat interface
-│   └── OllamaConfigModal.tsx # AI configuration
+│   ├── Layout.tsx          # Main layout and keyboard navigation
+│   ├── Sidebar.tsx         # Feed navigation and selection management
+│   ├── FeedList.tsx        # Entry display and interaction
+│   ├── FeedListEntry.tsx   # Individual entry with actions and display
+│   ├── SearchResults.tsx   # Search functionality
+│   ├── Header.tsx          # Search and dark mode
+│   ├── ChatModal.tsx       # Article chat interface
+│   ├── AIConfigModal.tsx   # AI provider and recommendation config
+│   └── FeedManagementModal.tsx # OPML import/export and feed management
 ├── services/
-│   ├── db.ts            # Database operations
-│   ├── articleService.ts # Content extraction
-│   ├── paginationService.ts # Pagination management
-│   └── ollamaService.ts # AI integration
-└── App.tsx              # Root component
+│   ├── db.ts              # Database schema, operations, and queries
+│   ├── aiService.ts       # AI provider integration (Ollama, OpenAI, Anthropic)
+│   ├── interestService.ts # Tag extraction, interest profile, and scoring
+│   ├── feedParser.ts      # Feed parsing, entry processing, and summarization
+│   ├── articleService.ts  # Full article content extraction
+│   ├── ttsService.ts      # Text-to-speech queue management
+│   ├── opmlService.ts     # OPML import and export
+│   └── paginationService.ts # Pagination management
+└── App.tsx                # Root component and routes
 ```
 
 ## 🔄 License

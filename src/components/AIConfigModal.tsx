@@ -9,8 +9,9 @@ import {
   loadAIConfig,
   type AIConfig
 } from '../services/aiService';
-import { clearAllAISummaries } from '../services/db';
+import { clearAllAISummaries, type InterestTag } from '../services/db';
 import { getQueueStats, clearQueue, initializeQueue } from '../services/requestQueueService';
+import { getInterestProfile, clearInterestProfile, rescoreAllTaggedEntries, deleteInterestTag } from '../services/interestService';
 
 interface AIConfigModalProps {
   isOpen: boolean;
@@ -31,9 +32,7 @@ interface QueuedRequest {
 
 const defaultSystemPrompts = {
   summary: "You are a helpful AI assistant that summarizes RSS feed content. Be concise and focus on the key points.",
-  chat: "You are a helpful AI assistant that discusses RSS feed content with users. Be informative and engaging.",
-  historyAnalyzer: "You are an AI that analyzes user's reading history to understand their interests and preferences.",
-  itemRecommender: "You are an AI that recommends articles based on user's reading history and interests."
+  chat: "You are a helpful AI assistant that discusses RSS feed content with users. Be informative and engaging."
 };
 
 const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMode }) => {
@@ -51,14 +50,14 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
   // Model states
   const [summaryModel, setSummaryModel] = useState('');
   const [chatModel, setChatModel] = useState('');
-  const [historyAnalyzerModel, setHistoryAnalyzerModel] = useState('');
-  const [itemRecommenderModel, setItemRecommenderModel] = useState('');
 
   // Prompt states
   const [summarySystemPrompt, setSummarySystemPrompt] = useState(defaultSystemPrompts.summary);
   const [chatSystemPrompt, setChatSystemPrompt] = useState(defaultSystemPrompts.chat);
-  const [historyAnalyzerPrompt, setHistoryAnalyzerPrompt] = useState(defaultSystemPrompts.historyAnalyzer);
-  const [itemRecommenderPrompt, setItemRecommenderPrompt] = useState(defaultSystemPrompts.itemRecommender);
+
+  // Interest profile state
+  const [interestTags, setInterestTags] = useState<InterestTag[]>([]);
+  const [isClearingProfile, setIsClearingProfile] = useState(false);
 
   // Queue states
   const [maxConcurrentRequests, setMaxConcurrentRequests] = useState(2);
@@ -106,6 +105,13 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
       refreshStats();
       const interval = setInterval(refreshStats, 1000);
       return () => clearInterval(interval);
+    }
+  }, [isOpen]);
+
+  // Load interest profile when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      getInterestProfile().then(setInterestTags).catch(console.error);
     }
   }, [isOpen]);
 
@@ -520,70 +526,100 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
                     </div>
                   </Tab.Panel>
 
-                  {/* Recommendations Configuration */}
+                  {/* Recommendations — Interest Profile */}
                   <Tab.Panel>
                     <div className="space-y-4">
-                      <div>
-                        <label htmlFor="historyAnalyzerModel" className={labelClass}>
-                          History Analyzer Model
-                        </label>
-                        <select
-                          id="historyAnalyzerModel"
-                          value={historyAnalyzerModel}
-                          onChange={(e) => setHistoryAnalyzerModel(e.target.value)}
-                          className={inputClass}
-                          required
-                        >
-                          {availableModels.map(model => (
-                            <option key={model.name} value={model.name}>
-                              {model.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="historyAnalyzerPrompt" className={labelClass}>
-                          History Analyzer Prompt
-                        </label>
-                        <textarea
-                          id="historyAnalyzerPrompt"
-                          value={historyAnalyzerPrompt}
-                          onChange={(e) => setHistoryAnalyzerPrompt(e.target.value)}
-                          className={`${inputClass} h-24 resize-none`}
-                          placeholder="Customize the system prompt for history analysis..."
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="itemRecommenderModel" className={labelClass}>
-                          Item Recommender Model
-                        </label>
-                        <select
-                          id="itemRecommenderModel"
-                          value={itemRecommenderModel}
-                          onChange={(e) => setItemRecommenderModel(e.target.value)}
-                          className={inputClass}
-                          required
-                        >
-                          {availableModels.map(model => (
-                            <option key={model.name} value={model.name}>
-                              {model.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label htmlFor="itemRecommenderPrompt" className={labelClass}>
-                          Item Recommender Prompt
-                        </label>
-                        <textarea
-                          id="itemRecommenderPrompt"
-                          value={itemRecommenderPrompt}
-                          onChange={(e) => setItemRecommenderPrompt(e.target.value)}
-                          className={`${inputClass} h-24 resize-none`}
-                          placeholder="Customize the system prompt for item recommendations..."
-                          required
-                        />
+                      <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Tags are extracted from AI summaries. Starring or listening to an entry adds its tags here. Articles matching these tags appear in the Recommended view.
+                      </p>
+
+                      {interestTags.length === 0 ? (
+                        <div className={`text-center py-6 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                          No interest tags collected yet. Star or listen to summarized articles to build your profile.
+                        </div>
+                      ) : (
+                        <div className={`p-4 rounded-lg border ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
+                          <div className="flex flex-wrap gap-2">
+                            {interestTags.map(tag => (
+                              <span
+                                key={tag.tag}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-sm ${
+                                  isDarkMode
+                                    ? 'bg-gray-600 text-gray-200'
+                                    : 'bg-gray-200 text-gray-700'
+                                }`}
+                              >
+                                {tag.tag}
+                                <span className={`text-xs font-mono ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                                  {tag.count}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    await deleteInterestTag(tag.id!);
+                                    setInterestTags(prev => prev.filter(t => t.id !== tag.id));
+                                  }}
+                                  className={`ml-0.5 rounded-full p-0.5 transition-colors ${
+                                    isDarkMode
+                                      ? 'hover:bg-gray-500 text-gray-400 hover:text-gray-200'
+                                      : 'hover:bg-gray-300 text-gray-500 hover:text-gray-700'
+                                  }`}
+                                  title={`Remove "${tag.tag}" from profile`}
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                  </svg>
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex gap-2">
+                        {interestTags.length > 0 && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await rescoreAllTaggedEntries();
+                                window.dispatchEvent(new CustomEvent('showToast', {
+                                  detail: { message: 'Re-scored all entries', type: 'success' }
+                                }));
+                              }}
+                              className={`text-sm px-3 py-1.5 rounded ${
+                                isDarkMode
+                                  ? 'bg-blue-900/30 text-blue-400 hover:bg-blue-900/50'
+                                  : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                              }`}
+                            >
+                              Re-score Entries
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isClearingProfile}
+                              onClick={async () => {
+                                setIsClearingProfile(true);
+                                try {
+                                  await clearInterestProfile();
+                                  setInterestTags([]);
+                                  await rescoreAllTaggedEntries();
+                                } catch (e) {
+                                  console.error('Failed to clear profile:', e);
+                                } finally {
+                                  setIsClearingProfile(false);
+                                }
+                              }}
+                              className={`text-sm px-3 py-1.5 rounded ${
+                                isDarkMode
+                                  ? 'bg-red-900/30 text-red-400 hover:bg-red-900/50'
+                                  : 'bg-red-50 text-red-600 hover:bg-red-100'
+                              }`}
+                            >
+                              {isClearingProfile ? 'Clearing...' : 'Clear Profile'}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </Tab.Panel>

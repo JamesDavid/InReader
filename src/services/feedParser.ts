@@ -2,6 +2,7 @@ import { addEntry, addFeed, type Feed, type FeedEntry, db, notifyEntryUpdate } f
 import { enqueueRequest, getQueueStats } from './requestQueueService';
 import { fetchArticleContent } from './articleService';
 import { generateSummary, loadAIConfig } from './aiService';
+import { parseSummaryAndTags, scoreEntry } from './interestService';
 import TurndownService from 'turndown';
 
 // Use relative URL so it works through nginx proxy in production
@@ -127,19 +128,33 @@ async function processEntry(entryId: number) {
       return;
     }
 
+    // Append TAGS instruction to the system prompt so tag extraction works
+    // regardless of what the user has saved in their config
+    const tagsInstruction = '\n\nAfter your summary, add a final line in exactly this format:\nTAGS: tag1, tag2, tag3\nInclude 3-8 lowercase topic tags capturing the specific subjects, technologies, people, or themes.';
+    const configWithTags = {
+      ...config,
+      summarySystemPrompt: (config.summarySystemPrompt || '').includes('TAGS:')
+        ? config.summarySystemPrompt
+        : (config.summarySystemPrompt || '') + tagsInstruction
+    };
+
     console.log('Generating summary for:', entry.title, 'using model:', config.summaryModel);
     const summary = await generateSummary(
       articleContent.content,
       entry.link,
-      config,
+      configWithTags,
       undefined,
       entryId
     );
     console.log('Successfully generated summary for:', entry.title);
 
-    // Update entry with summary
+    // Parse tags from summary
+    const { summaryText, tags } = parseSummaryAndTags(summary);
+
+    // Update entry with summary and tags
     await db.entries.update(entryId, {
-      content_aiSummary: summary,
+      content_aiSummary: summaryText,
+      tags: tags.length > 0 ? tags : undefined,
       aiSummaryMetadata: {
         isFullContent,
         model: config.summaryModel,
@@ -150,6 +165,11 @@ async function processEntry(entryId: number) {
       requestError: undefined
     });
     notifyEntryUpdate(entryId);
+
+    // Score entry against interest profile (fire-and-forget)
+    if (tags.length > 0) {
+      scoreEntry(entryId).catch(console.error);
+    }
 
     return true;
   } catch (error) {

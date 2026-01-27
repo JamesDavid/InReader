@@ -220,9 +220,14 @@ class TTSService {
 
     this.queue.push(article);
     this.notifyListeners();
-    
+
     // Play the happy sound effect
     this.playAddToQueueSound();
+
+    // Update interest profile (fire-and-forget)
+    import('./interestService').then(({ updateInterestProfile }) => {
+      updateInterestProfile(entry.id).catch(console.error);
+    });
 
     // If not currently playing, start playing
     if (!this.isPlaying) {

@@ -15,6 +15,7 @@ function App() {
           <Route path="folder/:folderId" element={<FeedList />} />
           <Route path="starred" element={<FeedList />} />
           <Route path="listened" element={<FeedList />} />
+          <Route path="recommended" element={<FeedList />} />
           <Route path="chats" element={<ChatsView />} />
           <Route path="search/:query" element={<SearchResults />} />
           <Route path="gun/:pubKey" element={<GunFeedList />} />

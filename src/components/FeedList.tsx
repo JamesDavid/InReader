@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useLocation, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getFeedEntries, getAllEntries, getStarredEntries, getListenedEntries, getFeedsByFolder, markAsRead, toggleStar, type FeedEntryWithTitle, db } from '../services/db';
+import { getFeedEntries, getAllEntries, getStarredEntries, getListenedEntries, getRecommendedEntries, getFeedsByFolder, markAsRead, toggleStar, type FeedEntryWithTitle, db } from '../services/db';
 import ChatModal from './ChatModal';
 import ttsService from '../services/ttsService';
 import FeedListEntry from './FeedListEntry';
@@ -90,7 +90,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     // Load new page of entries if needed
     const loadPageEntries = async () => {
       try {
-        if (!props.entries && !folderId && !location.pathname.startsWith('/starred') && !location.pathname.startsWith('/listened')) {
+        if (!props.entries && !folderId && !location.pathname.startsWith('/starred') && !location.pathname.startsWith('/listened') && !location.pathname.startsWith('/recommended')) {
           let result;
           if (feedId) {
             result = await getFeedEntries(parseInt(feedId), currentPage, ITEMS_PER_PAGE);
@@ -140,7 +140,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   useEffect(() => {
     if (isLoadingPage) return; // Don't update while loading
 
-    if (props.entries || folderId || location.pathname.startsWith('/starred') || location.pathname.startsWith('/listened')) {
+    if (props.entries || folderId || location.pathname.startsWith('/starred') || location.pathname.startsWith('/listened') || location.pathname.startsWith('/recommended')) {
       // For locally-paginated routes, slice from filteredEntries
       const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
       const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, filteredEntries.length);
@@ -196,15 +196,17 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const handleToggleStar = useCallback(async (entryId: number) => {
     await toggleStar(entryId);
     // Then refresh from DB
-    const loadedEntries = props.entries 
-      ? props.entries 
-      : feedId 
+    const loadedEntries = props.entries
+      ? props.entries
+      : feedId
         ? (await getFeedEntries(parseInt(feedId))).entries
         : location.pathname === '/starred'
           ? await getStarredEntries()
           : location.pathname === '/listened'
             ? await getListenedEntries()
-            : (await getAllEntries()).entries;
+            : location.pathname === '/recommended'
+              ? await getRecommendedEntries()
+              : (await getAllEntries()).entries;
     setEntries(loadedEntries);
   }, [feedId, location.pathname, props.entries]);
 
@@ -339,6 +341,9 @@ const FeedList: React.FC<FeedListProps> = (props) => {
             const dateB = b.listenedDate?.getTime() || 0;
             return dateB - dateA;
           });
+        } else if (location.pathname === '/recommended') {
+          loadedEntries = await getRecommendedEntries();
+          totalEntriesCount = loadedEntries.length;
         } else {
           const result = await getAllEntries(currentPage, ITEMS_PER_PAGE);
           loadedEntries = result.entries;
@@ -484,7 +489,9 @@ const FeedList: React.FC<FeedListProps> = (props) => {
                 ? await getStarredEntries()
                 : location.pathname === '/listened'
                   ? await getListenedEntries()
-                  : (await getAllEntries()).entries;
+                  : location.pathname === '/recommended'
+                    ? await getRecommendedEntries()
+                    : (await getAllEntries()).entries;
           setEntries(loadedEntries);
         };
         loadEntries();
@@ -588,15 +595,17 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   useEffect(() => {
     const handleEntryReprocess = async (event: CustomEvent<{ entryId: number }>) => {
       // Reload the entries to get the updated content
-      const loadedEntries = props.entries 
-        ? props.entries 
-        : feedId 
+      const loadedEntries = props.entries
+        ? props.entries
+        : feedId
           ? (await getFeedEntries(parseInt(feedId))).entries
           : location.pathname === '/starred'
             ? await getStarredEntries()
             : location.pathname === '/listened'
               ? await getListenedEntries()
-              : (await getAllEntries()).entries;
+              : location.pathname === '/recommended'
+                ? await getRecommendedEntries()
+                : (await getAllEntries()).entries;
       setEntries(loadedEntries);
     };
 
@@ -695,15 +704,17 @@ const FeedList: React.FC<FeedListProps> = (props) => {
           feedTitle={chatEntry.feedTitle}
           onChatUpdate={() => {
             const loadLatest = async () => {
-              const loadedEntries = props.entries 
-                ? props.entries 
-                : feedId 
+              const loadedEntries = props.entries
+                ? props.entries
+                : feedId
                   ? (await getFeedEntries(parseInt(feedId))).entries
                   : location.pathname === '/starred'
                     ? await getStarredEntries()
                     : location.pathname === '/listened'
                       ? await getListenedEntries()
-                      : (await getAllEntries()).entries;
+                      : location.pathname === '/recommended'
+                        ? await getRecommendedEntries()
+                        : (await getAllEntries()).entries;
               setEntries(loadedEntries);
             };
             loadLatest();

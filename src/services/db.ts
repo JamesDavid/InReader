@@ -40,6 +40,8 @@ interface FeedEntry {
     code?: string;
     details?: string;
   };
+  tags?: string[];
+  interestScore?: number;
 }
 
 // Add a new type for entries with feed titles
@@ -72,24 +74,33 @@ interface SavedSearch {
   mostRecentResult?: Date | null;
 }
 
+interface InterestTag {
+  id?: number;
+  tag: string;
+  count: number;
+  lastSeen: Date;
+}
+
 class ReaderDatabase extends Dexie {
   feeds!: Table<Feed>;
   entries!: Table<FeedEntry>;
   folders!: Table<Folder>;
   savedSearches!: Table<SavedSearch>;
+  interestTags!: Table<InterestTag>;
 
   constructor() {
     super('ReaderDatabase');
-    
+
     // Define all fields that need indexing
-    const entriesSchema = '++id, feedId, publishDate, isRead, readDate, isStarred, starredDate, isListened, listenedDate, lastChatDate, content_aiSummary, chatHistory, requestProcessingStatus, [feedId+link]';
+    const entriesSchema = '++id, feedId, publishDate, isRead, readDate, isStarred, starredDate, isListened, listenedDate, lastChatDate, content_aiSummary, chatHistory, requestProcessingStatus, [feedId+link], interestScore';
     const feedsSchema = '++id, url, folderId';
     const foldersSchema = '++id, parentId';
     const savedSearchesSchema = '++id, query, createdAt, lastUpdated, mostRecentResult';
+    const interestTagsSchema = '++id, &tag, count';
 
     this.version(62020).stores({
       feeds: feedsSchema,
-      entries: entriesSchema,
+      entries: '++id, feedId, publishDate, isRead, readDate, isStarred, starredDate, isListened, listenedDate, lastChatDate, content_aiSummary, chatHistory, requestProcessingStatus, [feedId+link]',
       folders: foldersSchema,
       savedSearches: savedSearchesSchema
     }).upgrade(async tx => {
@@ -159,6 +170,14 @@ class ReaderDatabase extends Dexie {
           search.mostRecentResult = new Date(search.mostRecentResult);
         }
       });
+    });
+
+    this.version(62021).stores({
+      feeds: feedsSchema,
+      entries: entriesSchema,
+      folders: foldersSchema,
+      savedSearches: savedSearchesSchema,
+      interestTags: interestTagsSchema
     });
   }
 }
@@ -293,6 +312,11 @@ export async function toggleStar(entryId: number) {
       starredDate: isStarred ? new Date() : undefined
     });
     notifyEntryUpdate(entryId);
+    if (isStarred) {
+      import('./interestService').then(({ updateInterestProfile }) => {
+        updateInterestProfile(entryId).catch(console.error);
+      });
+    }
     return result;
   }
 }
@@ -435,6 +459,15 @@ export async function getListenedEntries() {
   const entries = await db.entries
     .filter(entry => entry.isListened === true)
     .toArray();
+  return addFeedTitleToEntries(entries);
+}
+
+export async function getRecommendedEntries() {
+  const entries = await db.entries
+    .filter(entry => !entry.isRead && (entry.interestScore ?? 0) > 0)
+    .toArray();
+  // Sort by interestScore descending
+  entries.sort((a, b) => (b.interestScore ?? 0) - (a.interestScore ?? 0));
   return addFeedTitleToEntries(entries);
 }
 
@@ -844,7 +877,7 @@ export async function updateFolderName(folderId: number, newName: string) {
   });
 }
 
-export type { Feed, FeedEntry, FeedEntryWithTitle, Folder, SavedSearch, ChatMessage }; 
+export type { Feed, FeedEntry, FeedEntryWithTitle, Folder, SavedSearch, ChatMessage, InterestTag };
 
 // Add function to clear feed title cache when needed
 export function clearFeedTitleCache() {
