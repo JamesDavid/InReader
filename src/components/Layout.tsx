@@ -198,38 +198,6 @@ const Layout: React.FC = () => {
     return () => window.removeEventListener('showToast', handleToast as EventListener);
   }, []);
 
-  // Handle mobile swipe-left dismiss: select the entry that fills the dismissed slot
-  useEffect(() => {
-    const handleSwipeDismiss = (event: CustomEvent<{ entryId: number; index: number }>) => {
-      const { index: dismissedIndex } = event.detail;
-
-      // Brief delay to let React re-render after FeedList removes the entry
-      setTimeout(() => {
-        const feedListElement = document.querySelector('main [data-current-page]');
-        if (!feedListElement) return;
-
-        const articles = feedListElement.querySelectorAll('article');
-        const maxItems = articles.length;
-
-        if (maxItems === 0) return;
-
-        // The dismissed entry is already removed from the list, so the next
-        // entry has shifted into dismissedIndex. Select it, or the last item
-        // if we dismissed the last entry.
-        const selectIndex = Math.min(dismissedIndex, maxItems - 1);
-        setSelectedFeedIndex(selectIndex);
-        const article = feedListElement.querySelector(`article[data-index="${selectIndex}"]`);
-        if (article) {
-          const newEntryId = article.getAttribute('data-entry-id');
-          if (newEntryId) setSelectedEntryId(parseInt(newEntryId));
-        }
-      }, 50);
-    };
-
-    window.addEventListener('mobileSwipeDismiss', handleSwipeDismiss as EventListener);
-    return () => window.removeEventListener('mobileSwipeDismiss', handleSwipeDismiss as EventListener);
-  }, []);
-
   useEffect(() => {
     const handleKeyDown = async (e: KeyboardEvent) => {
       // Only block non-TTS keyboard shortcuts if we're in an input/textarea

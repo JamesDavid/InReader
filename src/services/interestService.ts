@@ -20,6 +20,9 @@ export function parseSummaryAndTags(raw: string): { summaryText: string; tags: s
 export async function updateInterestProfile(entryId: number): Promise<void> {
   const entry = await db.entries.get(entryId);
   if (!entry?.tags || entry.tags.length === 0) return;
+  if (entry.interestProfileUpdated) return;
+
+  await db.entries.update(entryId, { interestProfileUpdated: true });
 
   const now = new Date();
   for (const tag of entry.tags) {

@@ -6,7 +6,6 @@ import { reprocessEntry } from '../services/feedParser';
 import ttsService from '../services/ttsService';
 import { gunService } from '../services/gunService';
 import { useSwipeGesture } from '../hooks/useSwipeGesture';
-import EntryActionStrip from './EntryActionStrip';
 import EntryBottomSheet from './EntryBottomSheet';
 
 interface FeedListEntryProps {
@@ -17,6 +16,7 @@ interface FeedListEntryProps {
   isDarkMode: boolean;
   isChatOpen: boolean;
   isExpanded: boolean;
+  interestTagNames?: Set<string>;
   onSelect: (index: number) => void;
   onFocusChange: (focused: boolean) => void;
   onMarkAsRead: (entryId: number, isRead?: boolean) => void;
@@ -42,6 +42,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   onToggleStar,
   onToggleExpand,
   onContentView,
+  interestTagNames,
   onContentLeave,
   contentRef,
   onOpenChat,
@@ -76,9 +77,17 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     setBottomSheetOpen(true);
   }, []);
 
+  const handleSwipeRight = useCallback(() => {
+    if (!currentEntry.id) return;
+    onMarkAsRead(currentEntry.id, true);
+    window.dispatchEvent(new CustomEvent('mobileSwipeDismiss', {
+      detail: { entryId: currentEntry.id, index, expandNext: true }
+    }));
+  }, [currentEntry.id, index, onMarkAsRead]);
+
   const { state: swipeState, resetReveal } = useSwipeGesture(swipeContainerRef, {
     onSwipeLeft: handleSwipeLeft,
-    onSwipeRight: () => { if (currentEntry.id) onMarkAsRead(currentEntry.id, true); },
+    onSwipeRight: handleSwipeRight,
     onLongPress: handleSwipeLongPress,
     enabled: isMobile,
   });
@@ -537,37 +546,6 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
           : ''}`}
       style={{ cursor: isChatOpen ? 'default' : 'pointer' }}
     >
-      {/* Action strip behind content (mobile only), clipped to swipe progress */}
-      {isMobile && (swipeState.direction === 'right' || swipeState.isRevealed) && (
-        <div
-          className={`absolute inset-y-0 left-0 overflow-hidden z-10 ${
-            swipeState.isTransitioning ? 'transition-[width] duration-300' : ''
-          }`}
-          style={{ width: Math.max(0, swipeState.translateX) }}
-        >
-          <EntryActionStrip
-            isDarkMode={isDarkMode}
-            isStarred={!!currentEntry.isStarred}
-            onStar={() => onToggleStar(currentEntry.id!)}
-            onChat={() => onOpenChat?.(currentEntry)}
-            onListen={() => {
-              const content = currentEntry.content_fullArticle || currentEntry.content_rssAbstract;
-              if (content && currentEntry.id) {
-                ttsService.addToQueue({
-                  id: currentEntry.id,
-                  title: currentEntry.title,
-                  content_fullArticle: currentEntry.content_fullArticle,
-                  content_rssAbstract: currentEntry.content_rssAbstract,
-                  content_aiSummary: currentEntry.content_aiSummary,
-                  feedTitle: feedTitle
-                });
-              }
-            }}
-            onDone={resetReveal}
-          />
-        </div>
-      )}
-
       {/* Swipeable content layer */}
       <div
         ref={swipeContainerRef}
@@ -772,18 +750,25 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
               </div>
               {currentEntry.tags && currentEntry.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
-                  {currentEntry.tags.map(tag => (
-                    <span
-                      key={tag}
-                      className={`px-2 py-0.5 rounded-full text-xs ${
-                        isDarkMode
-                          ? 'bg-gray-700 text-gray-300'
-                          : 'bg-gray-200 text-gray-600'
-                      }`}
-                    >
-                      {tag}
-                    </span>
-                  ))}
+                  {currentEntry.tags.map(tag => {
+                    const isInterest = interestTagNames?.has(tag);
+                    return (
+                      <span
+                        key={tag}
+                        className={`px-2 py-0.5 rounded-full text-xs ${
+                          isInterest
+                            ? isDarkMode
+                              ? 'bg-purple-500/20 text-purple-200'
+                              : 'bg-purple-100 text-purple-800'
+                            : isDarkMode
+                              ? 'bg-gray-700 text-gray-300'
+                              : 'bg-gray-200 text-gray-600'
+                        }`}
+                      >
+                        {tag}
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </div>

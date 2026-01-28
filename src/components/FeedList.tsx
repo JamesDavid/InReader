@@ -7,6 +7,7 @@ import FeedListEntry from './FeedListEntry';
 import { PaginationService, type PaginationState } from '../services/paginationService';
 import { refreshFeed } from '../services/feedParser';
 import { Pagination } from './Pagination';
+import { getInterestProfile } from '../services/interestService';
 
 interface ContextType {
   isFocused: boolean;
@@ -38,6 +39,8 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const showUnreadOnly = context.showUnreadOnly;
   const selectedIndex = context.selectedIndex;
   const onSelectedIndexChange = context.onSelectedIndexChange;
+  const selectedEntryId = context.selectedEntryId;
+  const onSelectedEntryIdChange = context.onSelectedEntryIdChange;
   const onOpenChat = context.onOpenChat;
 
   const [entries, setEntries] = useState<FeedEntryWithTitle[]>([]);
@@ -62,6 +65,10 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const [isLoadingPage, setIsLoadingPage] = useState(false);
   const [targetPage, setTargetPage] = useState(1);
   const [dismissedEntryIds, setDismissedEntryIds] = useState<Set<number>>(new Set());
+  const [interestTagNames, setInterestTagNames] = useState<Set<string>>(new Set());
+  const paginatedItemsRef = useRef<FeedEntryWithTitle[]>([]);
+  const selectedEntryIdRef = useRef<number | null>(selectedEntryId);
+  const selectedIndexRef = useRef<number>(selectedIndex);
 
   // Filter entries based on showUnreadOnly and dismissed entries
   const filteredEntries = useMemo(() => {
@@ -74,6 +81,16 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     }
     return result;
   }, [entries, showUnreadOnly, dismissedEntryIds]);
+
+  // Keep refs in sync for use in event handlers
+  paginatedItemsRef.current = paginatedState.items;
+  selectedEntryIdRef.current = selectedEntryId;
+  selectedIndexRef.current = selectedIndex;
+
+  const displayItems = useMemo(() => {
+    if (dismissedEntryIds.size === 0) return paginatedState.items;
+    return paginatedState.items.filter(entry => !dismissedEntryIds.has(entry.id!));
+  }, [paginatedState.items, dismissedEntryIds]);
 
   // Update pagination state when page or entries change
   useEffect(() => {
@@ -164,15 +181,15 @@ const FeedList: React.FC<FeedListProps> = (props) => {
 
   // Ensure selection is within bounds
   useEffect(() => {
-    if (selectedIndex >= paginatedState.items.length) {
-      onSelectedIndexChange(Math.max(0, paginatedState.items.length - 1));
+    if (selectedIndex >= displayItems.length) {
+      onSelectedIndexChange(Math.max(0, displayItems.length - 1));
     }
-  }, [paginatedState.items.length, selectedIndex, onSelectedIndexChange]);
+  }, [displayItems.length, selectedIndex, onSelectedIndexChange]);
 
   // Handle scrolling
   useEffect(() => {
-    if (!isFocused || paginatedState.items.length === 0) return;
-  }, [selectedIndex, isFocused, paginatedState.items.length]);
+    if (!isFocused || displayItems.length === 0) return;
+  }, [selectedIndex, isFocused, displayItems.length]);
 
   const handleMarkAsRead = useCallback(async (entryId: number, isRead?: boolean) => {
     // Dispatch event first for immediate UI update
@@ -553,26 +570,64 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     };
   }, []);
 
-  // Handle mobile swipe-left dismiss: remove entry from rendered list
+  // Handle mobile swipe dismiss: remove entry from rendered list and advance selection
   useEffect(() => {
-    const handleDismiss = (event: CustomEvent<{ entryId: number; index: number }>) => {
+    const handleDismiss = (event: CustomEvent<{ entryId: number; index: number; expandNext?: boolean }>) => {
+      const { entryId, expandNext } = event.detail;
+
+      // Build the post-dismiss list to determine next selection
+      const currentItems = paginatedItemsRef.current;
+      const currentIdx = currentItems.findIndex(e => e.id === entryId);
+      const remainingItems = currentItems.filter(e => e.id !== entryId);
+
+      // Pick the entry that will occupy the same position, or the new last entry
+      const nextIdx = Math.min(currentIdx, remainingItems.length - 1);
+      const nextEntry = nextIdx >= 0 ? remainingItems[nextIdx] : null;
+
       setDismissedEntryIds(prev => {
         const next = new Set(prev);
-        next.add(event.detail.entryId);
+        next.add(entryId);
         return next;
       });
+
+      if (nextEntry?.id) {
+        onSelectedIndexChange(nextIdx);
+        onSelectedEntryIdChange(nextEntry.id!);
+
+        if (expandNext) {
+          setExpandedEntries(prev => ({ ...prev, [nextEntry.id!]: true }));
+
+          // Scroll the next entry to the top after the DOM updates
+          setTimeout(() => {
+            const entryElement = listRef.current?.querySelector(`[data-entry-id="${nextEntry.id}"]`);
+            if (entryElement) {
+              entryElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }, 100);
+        }
+      }
     };
 
     window.addEventListener('mobileSwipeDismiss', handleDismiss as EventListener);
     return () => {
       window.removeEventListener('mobileSwipeDismiss', handleDismiss as EventListener);
     };
-  }, []);
+  }, [onSelectedIndexChange, onSelectedEntryIdChange]);
 
   // Clear dismissed entries when route changes (navigating to different feed/view)
   useEffect(() => {
     setDismissedEntryIds(new Set());
   }, [feedId, folderId, location.pathname]);
+
+  // Preserve selection when entries reorder (feed refresh, AI processing, score changes)
+  useEffect(() => {
+    const entryId = selectedEntryIdRef.current;
+    if (entryId == null || displayItems.length === 0) return;
+    const newIdx = displayItems.findIndex(e => e.id === entryId);
+    if (newIdx >= 0 && newIdx !== selectedIndexRef.current) {
+      onSelectedIndexChange(newIdx);
+    }
+  }, [displayItems, onSelectedIndexChange]);
 
   // Add this effect to handle feed refreshes
   useEffect(() => {
@@ -615,6 +670,23 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     };
   }, [feedId, location.pathname, props.entries]);
 
+  // Load interest tag names for highlighting tag pills
+  useEffect(() => {
+    const load = async () => {
+      const profile = await getInterestProfile();
+      setInterestTagNames(new Set(profile.map(t => t.tag)));
+    };
+    load();
+
+    const handleProfileChange = () => { load(); };
+    window.addEventListener('entryStarredChanged', handleProfileChange);
+    window.addEventListener('entryReprocessed', handleProfileChange);
+    return () => {
+      window.removeEventListener('entryStarredChanged', handleProfileChange);
+      window.removeEventListener('entryReprocessed', handleProfileChange);
+    };
+  }, []);
+
   return (
     <>
       <div 
@@ -623,7 +695,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
         onClick={() => !isFocused && onFocusChange(true)}
         tabIndex={0}
       >
-        {paginatedState.items.length === 0 ? (
+        {displayItems.length === 0 ? (
           <div className={`text-center mt-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
             {isLoadingPage ? 'Loading entries...' : (entries.length === 0 ? 'No entries to display' : 'No unread entries')}
           </div>
@@ -641,7 +713,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
                   data-prev-page-items={paginatedState.currentPage > 1 ? ITEMS_PER_PAGE : 0}
                   data-next-page-items={paginatedState.currentPage < paginatedState.totalPages ? ITEMS_PER_PAGE : 0}
                 >
-                  {paginatedState.items.map((entry, index) => (
+                  {displayItems.map((entry, index) => (
                     <FeedListEntry
                       key={entry.id}
                       entry={entry}
@@ -651,7 +723,11 @@ const FeedList: React.FC<FeedListProps> = (props) => {
                       isDarkMode={isDarkMode}
                       isChatOpen={isChatOpen}
                       isExpanded={expandedEntries[entry.id!] || false}
-                      onSelect={onSelectedIndexChange}
+                      onSelect={(idx: number) => {
+                        onSelectedIndexChange(idx);
+                        onSelectedEntryIdChange(entry.id!);
+                      }}
+                      interestTagNames={interestTagNames}
                       onFocusChange={onFocusChange}
                       onMarkAsRead={handleMarkAsRead}
                       onToggleStar={handleToggleStar}

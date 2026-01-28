@@ -4,6 +4,8 @@
 
 InReader combines the beloved simplicity of Google Reader with modern features like AI-powered summaries, chat capabilities, and a beautiful dark mode. Perfect for power users who love keyboard shortcuts and AI enthusiasts who want to chat with their articles!
 
+**All data is stored locally in your browser.** Feeds, articles, read/star state, AI summaries, chat history, and your interest profile all live in IndexedDB — nothing is sent to a remote server. Your reading data stays on your device.
+
 ## ✨ Key Features
 
 ### 🎯 Core Features
@@ -12,7 +14,7 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 - **OPML Import/Export** - Import feeds from other readers or export your subscriptions as standard OPML files
 - **Visual Feed Status** - Color-coded unread badges to track content freshness
 - **Full Article Extraction** - Automatic fetching of complete article content
-- **AI-Powered Summaries** - Local LLM summaries via Ollama integration (supports LAN servers)
+- **AI-Powered Summaries** - LLM summaries via Ollama (local/LAN), OpenAI, or Anthropic Claude
 - **AI Interest Tagging & Recommendations** - Articles are automatically tagged by the AI during summarization. Star or listen to articles to build an interest profile, and discover new content in the Recommended view
 - **Chat with Articles** - Interactive AI discussions about article content
 - **Keyboard-First Design** - Vim-style navigation and comprehensive shortcuts
@@ -21,7 +23,7 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 - **Dark Mode** - Modern, eye-friendly dark theme
 - **Text-to-Speech** - Queue-based article playback with progress tracking
 - **Smart Navigation** - URL-synced navigation with keyboard and mouse support
-- **Offline Support** - IndexedDB-based local storage for articles and feeds
+- **Local-First Storage** - All data stored in IndexedDB in your browser; nothing leaves your device
 - **Search** - Full-text search with saved search history
 
 ### 🔄 Technical Features
@@ -38,9 +40,10 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 - Processing status indicators with error handling
 
 #### AI & TTS Integration
-- Local LLM support via Ollama for privacy
-- **LAN Ollama Support** - Connect to Ollama servers on your local network (e.g., `http://192.168.x.x:11434`)
-- Configurable AI models for summaries and chat
+- **Three AI providers** — Ollama (local/LAN), OpenAI, or Anthropic Claude
+- **Ollama** runs entirely on your own hardware for full privacy; supports LAN servers (e.g., `http://192.168.x.x:11434`)
+- **OpenAI / Claude** require an API key and send article content to external APIs for processing
+- Configurable models per task (separate models for summaries and chat)
 - Streaming chat responses with history tracking
 - Queue-based TTS playback with progress tracking
 - Automatic duplicate detection in TTS queue
@@ -119,7 +122,7 @@ This color-coding system helps you quickly identify feeds with fresh content and
 ### Prerequisites
 - Node.js (for development)
 - Docker (for production deployment)
-- Ollama (optional, for AI features)
+- AI provider (optional): Ollama (local), an OpenAI API key, or an Anthropic API key
 
 ### Quick Start - Development
 ```bash
@@ -162,17 +165,28 @@ docker-compose down
 
 > **Note:** Docker uses a self-signed SSL certificate. Accept the browser warning on first access.
 
-### Ollama Configuration (AI Features)
-To use AI-powered summaries and chat:
+### AI Configuration
+Click the lightning bolt icon in InReader to choose a provider and configure models.
 
+#### Ollama (local / LAN — fully private)
 1. Install [Ollama](https://ollama.ai/) on your machine or a server on your LAN
 2. Pull a model: `ollama pull llama3.2` (or any preferred model)
 3. For LAN access, start Ollama with: `OLLAMA_HOST=0.0.0.0 ollama serve`
-4. In InReader, click the lightning bolt icon and enter your Ollama server URL:
+4. Enter your Ollama server URL:
    - Local: `http://localhost:11434`
    - LAN: `http://192.168.x.x:11434` (your server's IP)
 
 > **Note:** For Vercel deployments, your Ollama server must be publicly accessible. For Docker/self-hosted, LAN servers work via the built-in proxy.
+
+#### OpenAI
+1. Enter your OpenAI API key
+2. Select models for summaries and chat (e.g., `gpt-4o-mini`, `gpt-4o`)
+
+#### Anthropic Claude
+1. Enter your Anthropic API key
+2. Select models for summaries and chat (e.g., `claude-sonnet-4-20250514`)
+
+> **Privacy note:** Ollama keeps all processing on your own hardware. OpenAI and Claude send article content to external APIs. All other data (feeds, read state, stars, interest profile) is always stored locally regardless of AI provider.
 
 ## Tech Stack
 - React 18

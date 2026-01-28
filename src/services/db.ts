@@ -42,6 +42,7 @@ interface FeedEntry {
   };
   tags?: string[];
   interestScore?: number;
+  interestProfileUpdated?: boolean;
 }
 
 // Add a new type for entries with feed titles

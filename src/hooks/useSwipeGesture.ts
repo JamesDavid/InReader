@@ -137,8 +137,8 @@ export function useSwipeGesture(
         tx = deltaX;
         direction = 'left';
       } else {
-        // Swipe right: cap at swipeRightMax
-        tx = Math.min(deltaX, swipeRightMax);
+        // Swipe right: uncapped, slides off screen like swipe-left
+        tx = deltaX;
         direction = 'right';
       }
 
@@ -162,7 +162,7 @@ export function useSwipeGesture(
       touchStartRef.current = null;
 
       // Read current state snapshot to decide action outside setState
-      let action: 'swipe-left' | 'reveal-right' | 'snap-back' | 'none' = 'none';
+      let action: 'swipe-left' | 'swipe-right' | 'snap-back' | 'none' = 'none';
 
       setState(prev => {
         if (!prev.isSwiping) return prev;
@@ -189,15 +189,13 @@ export function useSwipeGesture(
         }
 
         if (prev.direction === 'right') {
-          if (prev.translateX > swipeRightMax / 2) {
-            action = 'reveal-right';
-            isRevealedRef.current = true;
+          if (prev.translateX > swipeThreshold) {
+            action = 'swipe-right';
             return {
               ...prev,
-              translateX: swipeRightMax,
+              translateX: window.innerWidth,
               isTransitioning: true,
               isSwiping: false,
-              isRevealed: true,
             };
           } else {
             action = 'snap-back';
@@ -220,10 +218,9 @@ export function useSwipeGesture(
         setTimeout(() => {
           callbacksRef.current.onSwipeLeft();
         }, 300);
-      } else if (action === 'reveal-right') {
-        callbacksRef.current.onSwipeRight();
+      } else if (action === 'swipe-right') {
         setTimeout(() => {
-          setState(s => ({ ...s, isTransitioning: false }));
+          callbacksRef.current.onSwipeRight();
         }, 300);
       } else if (action === 'snap-back') {
         setTimeout(() => {
