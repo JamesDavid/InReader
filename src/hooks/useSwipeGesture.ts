@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
 interface SwipeOptions {
-  onSwipeLeft: () => void;
-  onSwipeRight: () => void;
+  onSwipeLeft: () => void;        // extreme swipe-left = archive
   onLongPress: () => void;
   enabled: boolean;
-  swipeThreshold?: number;
-  swipeRightMax?: number;
+  revealThreshold?: number;       // min distance to reveal strip (default 60)
+  archiveThreshold?: number;      // min distance to archive (default 200)
+  revealDistance?: number;         // snap-to offset when revealing (default 156)
   longPressDelay?: number;
 }
 
 interface SwipeState {
   translateX: number;
   isSwiping: boolean;
-  direction: 'left' | 'right' | null;
+  direction: 'left' | null;
   isTransitioning: boolean;
   isRevealed: boolean;
 }
@@ -24,11 +24,11 @@ export function useSwipeGesture(
 ) {
   const {
     onSwipeLeft,
-    onSwipeRight,
     onLongPress,
     enabled,
-    swipeThreshold = 100,
-    swipeRightMax = 180,
+    revealThreshold = 60,
+    archiveThreshold = 200,
+    revealDistance = 156,
     longPressDelay = 500,
   } = options;
 
@@ -40,9 +40,8 @@ export function useSwipeGesture(
     isRevealed: false,
   });
 
-  // Use refs for callbacks so we don't re-attach listeners on every render
-  const callbacksRef = useRef({ onSwipeLeft, onSwipeRight, onLongPress });
-  callbacksRef.current = { onSwipeLeft, onSwipeRight, onLongPress };
+  const callbacksRef = useRef({ onSwipeLeft, onLongPress });
+  callbacksRef.current = { onSwipeLeft, onLongPress };
 
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const directionLockedRef = useRef<'horizontal' | 'vertical' | null>(null);
@@ -76,7 +75,6 @@ export function useSwipeGesture(
 
     const handleTouchStart = (e: TouchEvent) => {
       // If revealed, any touch on the content area dismisses the strip.
-      // The action strip buttons are sibling elements and handle their own events.
       if (isRevealedRef.current) {
         e.preventDefault();
         resetReveal();
@@ -88,11 +86,9 @@ export function useSwipeGesture(
       directionLockedRef.current = null;
       longPressFiredRef.current = false;
 
-      // Start long press timer
       longPressTimerRef.current = setTimeout(() => {
         longPressFiredRef.current = true;
         callbacksRef.current.onLongPress();
-        // Reset touch state
         touchStartRef.current = null;
         setState(prev => ({ ...prev, isSwiping: false, translateX: 0, direction: null }));
       }, longPressDelay);
@@ -107,18 +103,15 @@ export function useSwipeGesture(
       const absDeltaX = Math.abs(deltaX);
       const absDeltaY = Math.abs(deltaY);
 
-      // Cancel long press on any significant movement
       if (absDeltaX > 10 || absDeltaY > 10) {
         clearLongPress();
       }
 
-      // Lock direction on first significant movement
       if (!directionLockedRef.current && (absDeltaX > 10 || absDeltaY > 10)) {
         if (absDeltaX > absDeltaY) {
           directionLockedRef.current = 'horizontal';
         } else {
           directionLockedRef.current = 'vertical';
-          // Vertical = scroll, abort gesture
           touchStartRef.current = null;
           return;
         }
@@ -126,27 +119,27 @@ export function useSwipeGesture(
 
       if (directionLockedRef.current !== 'horizontal') return;
 
-      // Prevent vertical scroll during horizontal swipe
       e.preventDefault();
 
-      let tx: number;
-      let direction: 'left' | 'right' | null = null;
-
-      if (deltaX < 0) {
-        // Swipe left: clamp to <= 0
-        tx = deltaX;
-        direction = 'left';
-      } else {
-        // Swipe right: uncapped, slides off screen like swipe-left
-        tx = deltaX;
-        direction = 'right';
+      // Only allow left swipes (clamp to <= 0)
+      if (deltaX > 0) {
+        // Slight rubber-band resistance on right drag
+        const tx = deltaX * 0.15;
+        setState(prev => ({
+          ...prev,
+          translateX: tx,
+          isSwiping: true,
+          direction: null,
+          isTransitioning: false,
+        }));
+        return;
       }
 
       setState(prev => ({
         ...prev,
-        translateX: tx,
+        translateX: deltaX,
         isSwiping: true,
-        direction,
+        direction: 'left',
         isTransitioning: false,
       }));
     };
@@ -161,66 +154,53 @@ export function useSwipeGesture(
 
       touchStartRef.current = null;
 
-      // Read current state snapshot to decide action outside setState
-      let action: 'swipe-left' | 'swipe-right' | 'snap-back' | 'none' = 'none';
+      let action: 'archive' | 'reveal' | 'snap-back' | 'none' = 'none';
 
       setState(prev => {
         if (!prev.isSwiping) return prev;
 
+        const absX = Math.abs(prev.translateX);
+
         if (prev.direction === 'left') {
-          if (Math.abs(prev.translateX) > swipeThreshold) {
-            action = 'swipe-left';
+          if (absX > archiveThreshold) {
+            action = 'archive';
             return {
               ...prev,
               translateX: -window.innerWidth,
               isTransitioning: true,
               isSwiping: false,
             };
-          } else {
-            action = 'snap-back';
+          } else if (absX > revealThreshold) {
+            action = 'reveal';
             return {
               ...prev,
-              translateX: 0,
+              translateX: -revealDistance,
               isTransitioning: true,
               isSwiping: false,
-              direction: null,
+              isRevealed: true,
             };
           }
         }
 
-        if (prev.direction === 'right') {
-          if (prev.translateX > swipeThreshold) {
-            action = 'swipe-right';
-            return {
-              ...prev,
-              translateX: window.innerWidth,
-              isTransitioning: true,
-              isSwiping: false,
-            };
-          } else {
-            action = 'snap-back';
-            return {
-              ...prev,
-              translateX: 0,
-              isTransitioning: true,
-              isSwiping: false,
-              direction: null,
-            };
-          }
-        }
-
-        return { ...prev, isSwiping: false, direction: null };
+        // Snap back (including any right drag)
+        action = 'snap-back';
+        return {
+          ...prev,
+          translateX: 0,
+          isTransitioning: true,
+          isSwiping: false,
+          direction: null,
+        };
       });
 
-      // Fire callbacks outside setState updater
-      if (action === 'swipe-left') {
-        // Wait for slide-off animation to complete, then fire callback
+      if (action === 'archive') {
         setTimeout(() => {
           callbacksRef.current.onSwipeLeft();
         }, 300);
-      } else if (action === 'swipe-right') {
+      } else if (action === 'reveal') {
+        isRevealedRef.current = true;
         setTimeout(() => {
-          callbacksRef.current.onSwipeRight();
+          setState(s => ({ ...s, isTransitioning: false }));
         }, 300);
       } else if (action === 'snap-back') {
         setTimeout(() => {
@@ -229,7 +209,6 @@ export function useSwipeGesture(
       }
     };
 
-    // Attach listeners imperatively for { passive: false } on touchmove
     el.addEventListener('touchstart', handleTouchStart, { passive: false });
     el.addEventListener('touchmove', handleTouchMove, { passive: false });
     el.addEventListener('touchend', handleTouchEnd);
@@ -242,7 +221,7 @@ export function useSwipeGesture(
       el.removeEventListener('touchcancel', handleTouchEnd);
       clearLongPress();
     };
-  }, [enabled, swipeThreshold, swipeRightMax, longPressDelay, clearLongPress, resetReveal, elementRef]);
+  }, [enabled, revealThreshold, archiveThreshold, revealDistance, longPressDelay, clearLongPress, resetReveal, elementRef]);
 
   return { state, resetReveal };
 }
