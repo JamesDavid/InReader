@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useLocation, useOutletContext, useSearchParams } from 'react-router-dom';
-import { getFeedEntries, getAllEntries, getStarredEntries, getListenedEntries, getRecommendedEntries, getFeedsByFolder, markAsRead, toggleStar, type FeedEntryWithTitle, db } from '../services/db';
+import { getFeedEntries, getAllEntries, getStarredEntries, getListenedEntries, getRecommendedEntries, getFeedsByFolder, getAllFeeds, markAsRead, toggleStar, type FeedEntryWithTitle, db } from '../services/db';
 import ChatModal from './ChatModal';
 import ttsService from '../services/ttsService';
 import FeedListEntry from './FeedListEntry';
 import { PaginationService, type PaginationState } from '../services/paginationService';
-import { refreshFeed } from '../services/feedParser';
+import { refreshFeed, refreshFeeds } from '../services/feedParser';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { Pagination } from './Pagination';
 import { getInterestProfile } from '../services/interestService';
 
@@ -304,6 +305,42 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       console.error('Error refreshing feed:', error);
     }
   }, [feedId, folderId]);
+
+  const handlePullToRefresh = useCallback(async () => {
+    if (feedId) {
+      const feed = await db.feeds.get(parseInt(feedId));
+      if (feed) {
+        await refreshFeed(feed);
+        const loaded = (await getFeedEntries(parseInt(feedId))).entries;
+        setEntries(loaded);
+      }
+    } else if (folderId) {
+      const folderFeeds = await getFeedsByFolder(parseInt(folderId));
+      await refreshFeeds(folderFeeds);
+      const results = await Promise.all(folderFeeds.map(f => getFeedEntries(f.id!)));
+      const loaded = results.flatMap(r => r.entries)
+        .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
+      setEntries(loaded);
+    } else {
+      const allFeeds = await getAllFeeds();
+      await refreshFeeds(allFeeds);
+      if (location.pathname === '/starred') {
+        setEntries(await getStarredEntries());
+      } else if (location.pathname === '/listened') {
+        setEntries(await getListenedEntries());
+      } else if (location.pathname === '/recommended') {
+        setEntries(await getRecommendedEntries());
+      } else {
+        const result = await getAllEntries(currentPage, ITEMS_PER_PAGE);
+        setEntries(result.entries);
+      }
+    }
+  }, [feedId, folderId, location.pathname, currentPage]);
+
+  const { state: pullState } = usePullToRefresh(listRef, {
+    onRefresh: handlePullToRefresh,
+    enabled: true,
+  });
 
   // Load entries based on current route
   useEffect(() => {
@@ -691,10 +728,31 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     <>
       <div 
         ref={listRef}
-        className={`h-full overflow-y-auto ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}
+        className={`h-full overflow-y-auto overscroll-contain ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}
         onClick={() => !isFocused && onFocusChange(true)}
         tabIndex={0}
       >
+        {(pullState.isPulling || pullState.isRefreshing) && (
+          <div
+            className={`flex items-center justify-center overflow-hidden ${
+              pullState.isRefreshing ? 'sticky top-0 z-10' : ''
+            } ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}
+            style={{ height: pullState.isRefreshing ? 48 : pullState.pullDistance }}
+          >
+            {pullState.isRefreshing ? (
+              <svg className="h-5 w-5 animate-spin text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+            ) : (
+              <svg className={`h-5 w-5 text-gray-400 transition-transform duration-200 ${
+                pullState.pullDistance >= 80 ? 'rotate-180 text-blue-500' : ''
+              }`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              </svg>
+            )}
+          </div>
+        )}
         {displayItems.length === 0 ? (
           <div className={`text-center mt-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
             {isLoadingPage ? 'Loading entries...' : (entries.length === 0 ? 'No entries to display' : 'No unread entries')}

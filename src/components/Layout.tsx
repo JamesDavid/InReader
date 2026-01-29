@@ -861,7 +861,7 @@ const Layout: React.FC = () => {
           onOpenSearch={handleOpenSearch}
         />
         <main
-          className={`flex-grow overflow-auto ${!sidebarFocused ? 'ring-2 ring-reader-blue ring-opacity-50' : ''}`}
+          className={`flex-grow overflow-auto overscroll-contain ${!sidebarFocused ? 'ring-2 ring-reader-blue ring-opacity-50' : ''}`}
           onClick={() => sidebarFocused && handleFocusChange(true)}
         >
           <Outlet context={outletContext} />
