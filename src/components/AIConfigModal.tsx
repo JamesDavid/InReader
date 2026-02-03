@@ -12,6 +12,7 @@ import {
 import { clearAllAISummaries, type InterestTag } from '../services/db';
 import { getQueueStats, clearQueue, initializeQueue } from '../services/requestQueueService';
 import { getInterestProfile, clearInterestProfile, rescoreAllTaggedEntries, deleteInterestTag } from '../services/interestService';
+import ttsService, { type TTSConfig, type OpenAIVoice, type TTSProvider } from '../services/ttsService';
 
 interface AIConfigModalProps {
   isOpen: boolean;
@@ -71,6 +72,14 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
+  // TTS state
+  const [ttsProvider, setTtsProvider] = useState<TTSProvider>('browser');
+  const [openaiVoice, setOpenaiVoice] = useState<OpenAIVoice>('nova');
+  const [openaiSpeed, setOpenaiSpeed] = useState(1.0);
+  const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedBrowserVoice, setSelectedBrowserVoice] = useState<string | null>(null);
+  const [browserRate, setBrowserRate] = useState(1.0);
+
   useEffect(() => {
     const config = loadAIConfig();
     if (config) {
@@ -114,6 +123,25 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
       getInterestProfile().then(setInterestTags).catch(console.error);
     }
   }, [isOpen]);
+
+  // Load TTS config and browser voices
+  useEffect(() => {
+    // Load TTS config
+    const ttsConfig = ttsService.getConfig();
+    setTtsProvider(ttsConfig.provider);
+    setOpenaiVoice(ttsConfig.openaiVoice);
+    setOpenaiSpeed(ttsConfig.openaiSpeed);
+    setSelectedBrowserVoice(ttsConfig.browserVoice);
+    setBrowserRate(ttsConfig.browserRate);
+
+    // Load browser voices
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      setBrowserVoices(voices);
+    };
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+  }, []);
 
   const handleTestConnection = async (
     prov: AIConfig['provider'],
@@ -445,6 +473,9 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
                 </>
               )}
               <Tab className={({ selected }) => selected ? selectedTabClass : tabClass}>
+                Text-to-Speech
+              </Tab>
+              <Tab className={({ selected }) => selected ? selectedTabClass : tabClass}>
                 Queue
               </Tab>
             </Tab.List>
@@ -625,6 +656,134 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
                   </Tab.Panel>
                 </>
               )}
+
+              {/* Text-to-Speech Configuration - Always visible */}
+              <Tab.Panel>
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="ttsProvider" className={labelClass}>
+                      TTS Provider
+                    </label>
+                    <select
+                      id="ttsProvider"
+                      value={ttsProvider}
+                      onChange={(e) => {
+                        const newProvider = e.target.value as TTSProvider;
+                        setTtsProvider(newProvider);
+                        ttsService.saveConfig({ provider: newProvider });
+                      }}
+                      className={inputClass}
+                    >
+                      <option value="browser">Browser (Free)</option>
+                      <option value="openai" disabled={!openaiApiKey}>
+                        OpenAI {!openaiApiKey ? '(requires API key)' : ''}
+                      </option>
+                    </select>
+                  </div>
+
+                  {ttsProvider === 'openai' && (
+                    <>
+                      <div>
+                        <label htmlFor="openaiVoice" className={labelClass}>
+                          Voice
+                        </label>
+                        <select
+                          id="openaiVoice"
+                          value={openaiVoice}
+                          onChange={(e) => {
+                            const voice = e.target.value as OpenAIVoice;
+                            setOpenaiVoice(voice);
+                            ttsService.saveConfig({ openaiVoice: voice });
+                          }}
+                          className={inputClass}
+                        >
+                          <option value="alloy">Alloy (neutral)</option>
+                          <option value="echo">Echo (male)</option>
+                          <option value="fable">Fable (British)</option>
+                          <option value="onyx">Onyx (deep male)</option>
+                          <option value="nova">Nova (female)</option>
+                          <option value="shimmer">Shimmer (soft female)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label htmlFor="openaiSpeed" className={labelClass}>
+                          Speed: {openaiSpeed.toFixed(1)}x
+                        </label>
+                        <input
+                          type="range"
+                          id="openaiSpeed"
+                          min="0.5"
+                          max="2.0"
+                          step="0.1"
+                          value={openaiSpeed}
+                          onChange={(e) => {
+                            const speed = parseFloat(e.target.value);
+                            setOpenaiSpeed(speed);
+                            ttsService.saveConfig({ openaiSpeed: speed });
+                          }}
+                          className="w-full"
+                        />
+                      </div>
+
+                      <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                        OpenAI TTS costs ~$0.015 per 1,000 characters. A typical article costs $0.01-0.05.
+                      </p>
+                    </>
+                  )}
+
+                  {ttsProvider === 'browser' && (
+                    <>
+                      <div>
+                        <label htmlFor="browserVoice" className={labelClass}>
+                          Voice
+                        </label>
+                        <select
+                          id="browserVoice"
+                          value={selectedBrowserVoice || ''}
+                          onChange={(e) => {
+                            const voiceName = e.target.value || null;
+                            setSelectedBrowserVoice(voiceName);
+                            ttsService.saveConfig({ browserVoice: voiceName });
+                          }}
+                          className={inputClass}
+                        >
+                          <option value="">System Default</option>
+                          {browserVoices.map((voice) => (
+                            <option key={voice.name} value={voice.name}>
+                              {voice.name} ({voice.lang})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label htmlFor="browserRate" className={labelClass}>
+                          Speed: {browserRate.toFixed(1)}x
+                        </label>
+                        <input
+                          type="range"
+                          id="browserRate"
+                          min="0.5"
+                          max="2.0"
+                          step="0.1"
+                          value={browserRate}
+                          onChange={(e) => {
+                            const rate = parseFloat(e.target.value);
+                            setBrowserRate(rate);
+                            ttsService.saveConfig({ browserRate: rate });
+                          }}
+                          className="w-full"
+                        />
+                      </div>
+
+                      <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                        Browser TTS is free but voice quality varies by browser and operating system.
+                      </p>
+                    </>
+                  )}
+                </div>
+              </Tab.Panel>
 
               {/* Queue Configuration - Always visible */}
               <Tab.Panel>

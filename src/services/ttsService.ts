@@ -1,4 +1,5 @@
 import { markAsListened } from './db';
+import { loadAIConfig } from './aiService';
 
 interface QueuedArticle {
   id: number;
@@ -8,11 +9,31 @@ interface QueuedArticle {
   content: string;
 }
 
+export type TTSProvider = 'browser' | 'openai';
+export type OpenAIVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+
+export interface TTSConfig {
+  provider: TTSProvider;
+  openaiVoice: OpenAIVoice;
+  openaiSpeed: number;
+  browserVoice: string | null;
+  browserRate: number;
+}
+
+const DEFAULT_TTS_CONFIG: TTSConfig = {
+  provider: 'browser',
+  openaiVoice: 'nova',
+  openaiSpeed: 1.0,
+  browserVoice: null,
+  browserRate: 1.0
+};
+
 class TTSService {
   private queue: QueuedArticle[] = [];
   private isPlaying: boolean = false;
   private isPaused: boolean = false;
   private currentUtterance: SpeechSynthesisUtterance | null = null;
+  private currentAudio: HTMLAudioElement | null = null;
   private voice: SpeechSynthesisVoice | null = null;
   private rate: number = 1;
   private currentArticle: QueuedArticle | null = null;
@@ -20,26 +41,64 @@ class TTSService {
   private listeners: Set<() => void> = new Set();
   private audioContext: AudioContext | null = null;
   private chromePauseWorkaroundInterval: number | null = null;
+  private ttsConfig: TTSConfig = DEFAULT_TTS_CONFIG;
 
   constructor() {
-    // Load saved preferences
-    const savedVoice = localStorage.getItem('selectedVoice');
-    const savedRate = localStorage.getItem('speechRate');
+    this.loadConfig();
 
-    if (savedRate) {
-      this.rate = parseFloat(savedRate);
-    }
-
-    // Initialize voice when available
+    // Initialize browser voice when available
     const loadVoice = () => {
-      if (savedVoice) {
+      if (this.ttsConfig.browserVoice) {
         const voices = window.speechSynthesis.getVoices();
-        this.voice = voices.find(v => v.name === savedVoice) || null;
+        this.voice = voices.find(v => v.name === this.ttsConfig.browserVoice) || null;
       }
     };
 
     loadVoice();
     window.speechSynthesis.onvoiceschanged = loadVoice;
+  }
+
+  private loadConfig() {
+    try {
+      const saved = localStorage.getItem('ttsConfig');
+      if (saved) {
+        this.ttsConfig = { ...DEFAULT_TTS_CONFIG, ...JSON.parse(saved) };
+      }
+
+      // Migrate legacy settings
+      const legacyVoice = localStorage.getItem('selectedVoice');
+      const legacyRate = localStorage.getItem('speechRate');
+      if (legacyVoice && !saved) {
+        this.ttsConfig.browserVoice = legacyVoice;
+      }
+      if (legacyRate && !saved) {
+        this.ttsConfig.browserRate = parseFloat(legacyRate);
+      }
+
+      this.rate = this.ttsConfig.browserRate;
+    } catch (e) {
+      console.error('Failed to load TTS config:', e);
+    }
+  }
+
+  saveConfig(config: Partial<TTSConfig>) {
+    this.ttsConfig = { ...this.ttsConfig, ...config };
+    localStorage.setItem('ttsConfig', JSON.stringify(this.ttsConfig));
+
+    // Update internal state
+    if (config.browserRate !== undefined) {
+      this.rate = config.browserRate;
+    }
+    if (config.browserVoice !== undefined) {
+      const voices = window.speechSynthesis.getVoices();
+      this.voice = voices.find(v => v.name === config.browserVoice) || null;
+    }
+
+    this.notifyListeners();
+  }
+
+  getConfig(): TTSConfig {
+    return { ...this.ttsConfig };
   }
 
   // Lazily initialize AudioContext to avoid browser warnings
@@ -132,10 +191,12 @@ class TTSService {
 
   updateVoice(voice: SpeechSynthesisVoice) {
     this.voice = voice;
+    this.saveConfig({ browserVoice: voice.name });
   }
 
   updateRate(rate: number) {
     this.rate = rate;
+    this.saveConfig({ browserRate: rate });
   }
 
   private playAddToQueueSound() {
@@ -310,6 +371,166 @@ class TTSService {
     this.currentArticle = article;
     this.notifyListeners();
 
+    if (this.ttsConfig.provider === 'openai') {
+      await this.playArticleWithOpenAI(article);
+    } else {
+      await this.playArticleWithBrowser(article);
+    }
+  }
+
+  private async playArticleWithOpenAI(article: QueuedArticle) {
+    const aiConfig = loadAIConfig();
+    const apiKey = aiConfig?.openaiApiKey;
+
+    if (!apiKey) {
+      console.error('No OpenAI API key configured');
+      // Fall back to browser TTS
+      await this.playArticleWithBrowser(article);
+      return;
+    }
+
+    // Build the full text to speak
+    const parts: string[] = [];
+    parts.push(`Now reading: ${article.title} from ${article.source}`);
+    if (article.summary) {
+      parts.push(`Summary: ${article.summary}`);
+    }
+    parts.push(article.content);
+
+    const fullText = parts.join('. ');
+
+    // OpenAI TTS has a 4096 character limit per request
+    // Split into chunks if needed
+    const chunks = this.splitTextIntoChunks(fullText, 4000);
+
+    try {
+      await this.playOpenAIChunks(chunks, article);
+    } catch (error) {
+      console.error('OpenAI TTS failed:', error);
+      // Fall back to browser TTS
+      await this.playArticleWithBrowser(article);
+    }
+  }
+
+  private splitTextIntoChunks(text: string, maxLength: number): string[] {
+    const chunks: string[] = [];
+    let remaining = text;
+
+    while (remaining.length > 0) {
+      if (remaining.length <= maxLength) {
+        chunks.push(remaining);
+        break;
+      }
+
+      // Find a good break point (sentence or word boundary)
+      let breakPoint = maxLength;
+
+      // Try to break at a sentence
+      const sentenceEnd = remaining.lastIndexOf('. ', maxLength);
+      if (sentenceEnd > maxLength * 0.5) {
+        breakPoint = sentenceEnd + 1;
+      } else {
+        // Try to break at a word
+        const wordEnd = remaining.lastIndexOf(' ', maxLength);
+        if (wordEnd > maxLength * 0.5) {
+          breakPoint = wordEnd;
+        }
+      }
+
+      chunks.push(remaining.slice(0, breakPoint).trim());
+      remaining = remaining.slice(breakPoint).trim();
+    }
+
+    return chunks;
+  }
+
+  private async playOpenAIChunks(chunks: string[], article: QueuedArticle): Promise<void> {
+    const aiConfig = loadAIConfig();
+    const apiKey = aiConfig?.openaiApiKey;
+
+    for (let i = 0; i < chunks.length; i++) {
+      if (!this.isPlaying || this.currentArticle?.id !== article.id) {
+        // Playback was stopped or article changed
+        return;
+      }
+
+      const chunk = chunks[i];
+
+      try {
+        const response = await fetch('/api/openai/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            apiKey,
+            model: 'tts-1',
+            voice: this.ttsConfig.openaiVoice,
+            input: chunk,
+            speed: this.ttsConfig.openaiSpeed
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`TTS request failed: ${response.status}`);
+        }
+
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        await this.playAudioElement(audioUrl, i === chunks.length - 1, article);
+
+        URL.revokeObjectURL(audioUrl);
+      } catch (error) {
+        console.error('Error playing OpenAI TTS chunk:', error);
+        throw error;
+      }
+    }
+  }
+
+  private playAudioElement(url: string, isLastChunk: boolean, article: QueuedArticle): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const audio = new Audio(url);
+      this.currentAudio = audio;
+
+      audio.onended = async () => {
+        this.currentAudio = null;
+
+        if (isLastChunk) {
+          // Mark article as listened
+          try {
+            await markAsListened(article.id);
+          } catch (error) {
+            console.error('Failed to mark article as listened:', error);
+          }
+
+          // Remove the current article from the queue
+          const indexToRemove = this.currentArticleIndex;
+          this.queue = this.queue.filter((_, index) => index !== indexToRemove);
+
+          // Adjust current index if needed
+          if (this.queue.length > 0) {
+            if (this.currentArticleIndex >= this.queue.length) {
+              this.currentArticleIndex = 0;
+            }
+            this.notifyListeners();
+            this.playNext();
+          } else {
+            this.stopInternal();
+          }
+        }
+
+        resolve();
+      };
+
+      audio.onerror = (e) => {
+        this.currentAudio = null;
+        reject(new Error('Audio playback failed'));
+      };
+
+      audio.play().catch(reject);
+    });
+  }
+
+  private async playArticleWithBrowser(article: QueuedArticle) {
     // Start Chrome pause workaround
     this.startChromePauseWorkaround();
 
@@ -422,24 +643,40 @@ class TTSService {
       return;
     }
 
-    if (this.isPaused) {
-      // Resume speech
-      window.speechSynthesis.resume();
-      this.isPaused = false;
-      this.isPlaying = true;
-      this.startChromePauseWorkaround();
+    if (this.ttsConfig.provider === 'openai' && this.currentAudio) {
+      if (this.isPaused) {
+        this.currentAudio.play();
+        this.isPaused = false;
+        this.isPlaying = true;
+      } else {
+        this.currentAudio.pause();
+        this.isPaused = true;
+        this.isPlaying = true;
+      }
     } else {
-      // Pause speech
-      window.speechSynthesis.pause();
-      this.isPaused = true;
-      this.isPlaying = true;
-      this.stopChromePauseWorkaround();
+      if (this.isPaused) {
+        // Resume speech
+        window.speechSynthesis.resume();
+        this.isPaused = false;
+        this.isPlaying = true;
+        this.startChromePauseWorkaround();
+      } else {
+        // Pause speech
+        window.speechSynthesis.pause();
+        this.isPaused = true;
+        this.isPlaying = true;
+        this.stopChromePauseWorkaround();
+      }
     }
     this.notifyListeners();
   }
 
   next() {
-    // Stop current speech first
+    // Stop current playback
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio = null;
+    }
     window.speechSynthesis.cancel();
 
     // If nothing is playing or queue is empty, nothing to do
@@ -470,7 +707,11 @@ class TTSService {
       // Calculate the new index first
       const prevIndex = this.currentArticleIndex - 1;
 
-      // Cancel current speech
+      // Cancel current playback
+      if (this.currentAudio) {
+        this.currentAudio.pause();
+        this.currentAudio = null;
+      }
       window.speechSynthesis.cancel();
 
       // Set the new index
@@ -483,6 +724,10 @@ class TTSService {
 
   // Internal stop that doesn't notify (used when transitioning between states)
   private stopInternal() {
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio = null;
+    }
     window.speechSynthesis.cancel();
     this.isPlaying = false;
     this.isPaused = false;
