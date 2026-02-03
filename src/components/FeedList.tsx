@@ -4,10 +4,9 @@ import { getFeedEntries, getAllEntries, getStarredEntries, getListenedEntries, g
 import ChatModal from './ChatModal';
 import ttsService from '../services/ttsService';
 import FeedListEntry from './FeedListEntry';
-import { PaginationService, type PaginationState } from '../services/paginationService';
 import { refreshFeed, refreshFeeds } from '../services/feedParser';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
-import { Pagination } from './Pagination';
+import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { getInterestProfile } from '../services/interestService';
 
 interface ContextType {
@@ -56,23 +55,17 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const [expandedEntries, setExpandedEntries] = useState<{ [key: number]: boolean }>({});
   const [searchParams] = useSearchParams();
   const [currentPage, setCurrentPage] = useState(1);
-  const [paginatedState, setPaginatedState] = useState<PaginationState<FeedEntryWithTitle>>({
-    items: [],
-    currentPage: 1,
-    totalItems: 0,
-    itemsPerPage: 20,
-    totalPages: 0
-  });
-  const [isLoadingPage, setIsLoadingPage] = useState(false);
-  const [targetPage, setTargetPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
   const [dismissedEntryIds, setDismissedEntryIds] = useState<Set<number>>(new Set());
   const [interestTagNames, setInterestTagNames] = useState<Set<string>>(new Set());
-  const paginatedItemsRef = useRef<FeedEntryWithTitle[]>([]);
+  const displayItemsRef = useRef<FeedEntryWithTitle[]>([]);
   const selectedEntryIdRef = useRef<number | null>(selectedEntryId);
   const selectedIndexRef = useRef<number>(selectedIndex);
+  const isLoadingMoreRef = useRef(false);
 
   // Filter entries based on showUnreadOnly and dismissed entries
-  const filteredEntries = useMemo(() => {
+  const displayItems = useMemo(() => {
     let result = entries;
     if (dismissedEntryIds.size > 0) {
       result = result.filter(entry => !dismissedEntryIds.has(entry.id!));
@@ -84,101 +77,49 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   }, [entries, showUnreadOnly, dismissedEntryIds]);
 
   // Keep refs in sync for use in event handlers
-  paginatedItemsRef.current = paginatedState.items;
+  displayItemsRef.current = displayItems;
   selectedEntryIdRef.current = selectedEntryId;
   selectedIndexRef.current = selectedIndex;
 
-  const displayItems = useMemo(() => {
-    if (dismissedEntryIds.size === 0) return paginatedState.items;
-    return paginatedState.items.filter(entry => !dismissedEntryIds.has(entry.id!));
-  }, [paginatedState.items, dismissedEntryIds]);
+  // Load more entries for infinite scroll
+  const loadMoreEntries = useCallback(async () => {
+    if (isLoadingMoreRef.current || !hasMore) return;
+    isLoadingMoreRef.current = true;
 
-  // Update pagination state when page or entries change
-  useEffect(() => {
-    if (!isLoadingPage) return; // Only load if we're in loading state
+    try {
+      const nextPage = currentPage + 1;
 
-    console.log('Loading page entries:', {
-      totalItems: paginatedState.totalItems,
-      entriesLength: entries.length,
-      filteredEntriesLength: filteredEntries.length,
-      currentPage,
-      showUnreadOnly
-    });
-
-    // Load new page of entries if needed
-    const loadPageEntries = async () => {
-      try {
-        if (!props.entries && !folderId && !location.pathname.startsWith('/starred') && !location.pathname.startsWith('/listened') && !location.pathname.startsWith('/recommended')) {
-          let result;
-          if (feedId) {
-            result = await getFeedEntries(parseInt(feedId), currentPage, ITEMS_PER_PAGE);
-          } else {
-            result = await getAllEntries(currentPage, ITEMS_PER_PAGE);
-          }
-          
-          console.log('Loaded new page:', {
-            currentPage,
-            loadedCount: result.entries.length,
-            totalItems: result.total
-          });
-
-          setEntries(result.entries);
-          setPaginatedState(prev => ({
-            items: showUnreadOnly ? result.entries.filter(entry => !entry.isRead) : result.entries,
-            currentPage,
-            totalItems: result.total,
-            itemsPerPage: ITEMS_PER_PAGE,
-            totalPages: Math.ceil(result.total / ITEMS_PER_PAGE)
-          }));
+      // Only DB-paginated routes (All Items, single Feed) need to load more
+      if (!props.entries && !folderId && !location.pathname.startsWith('/starred') && !location.pathname.startsWith('/listened') && !location.pathname.startsWith('/recommended')) {
+        let result;
+        if (feedId) {
+          result = await getFeedEntries(parseInt(feedId), nextPage, ITEMS_PER_PAGE);
         } else {
-          // For other cases (starred, listened, folder), handle pagination locally
-          const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-          const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, filteredEntries.length);
-          const pageItems = filteredEntries.slice(startIndex, endIndex);
-
-          setPaginatedState(prev => ({
-            items: pageItems,
-            currentPage,
-            totalItems: prev.totalItems,
-            itemsPerPage: ITEMS_PER_PAGE,
-            totalPages: prev.totalPages
-          }));
+          result = await getAllEntries(nextPage, ITEMS_PER_PAGE);
         }
-      } catch (error) {
-        console.error('Error loading page entries:', error);
-      } finally {
-        setIsLoadingPage(false);
+
+        if (result.entries.length > 0) {
+          setEntries(prev => [...prev, ...result.entries]);
+          setCurrentPage(nextPage);
+          setHasMore(entries.length + result.entries.length < result.total);
+        } else {
+          setHasMore(false);
+        }
       }
-    };
-
-    loadPageEntries();
-  }, [currentPage, isLoadingPage]); // Only depend on currentPage and isLoadingPage
-
-  // Keep paginatedState.items in sync whenever filteredEntries changes
-  useEffect(() => {
-    if (isLoadingPage) return; // Don't update while loading
-
-    if (props.entries || folderId || location.pathname.startsWith('/starred') || location.pathname.startsWith('/listened') || location.pathname.startsWith('/recommended')) {
-      // For locally-paginated routes, slice from filteredEntries
-      const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-      const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, filteredEntries.length);
-      const pageItems = filteredEntries.slice(startIndex, endIndex);
-
-      setPaginatedState(prev => ({
-        items: pageItems,
-        currentPage,
-        totalItems: filteredEntries.length,
-        itemsPerPage: ITEMS_PER_PAGE,
-        totalPages: Math.ceil(filteredEntries.length / ITEMS_PER_PAGE)
-      }));
-    } else {
-      // For DB-paginated routes (All Items, Feed), apply the filter to current page entries
-      setPaginatedState(prev => ({
-        ...prev,
-        items: filteredEntries,
-      }));
+    } catch (error) {
+      console.error('Error loading more entries:', error);
+    } finally {
+      isLoadingMoreRef.current = false;
     }
-  }, [filteredEntries, showUnreadOnly, props.entries, folderId, location.pathname, currentPage]);
+  }, [currentPage, hasMore, feedId, folderId, location.pathname, props.entries, entries.length]);
+
+  // Infinite scroll hook
+  const { sentinelRef, isLoading: isLoadingMore } = useInfiniteScroll({
+    onLoadMore: loadMoreEntries,
+    hasMore,
+    threshold: 300,
+    enabled: !props.entries && !folderId && !location.pathname.startsWith('/starred') && !location.pathname.startsWith('/listened') && !location.pathname.startsWith('/recommended'),
+  });
 
   // Ensure selection is within bounds
   useEffect(() => {
@@ -411,40 +352,24 @@ const FeedList: React.FC<FeedListProps> = (props) => {
         }
         
         setEntries(loadedEntries);
-        
-        // Initialize pagination state immediately
-        const totalPages = Math.max(1, Math.ceil(totalEntriesCount / ITEMS_PER_PAGE));
-        
-        console.log('Initializing pagination state:', {
-          totalEntriesCount,
-          totalPages,
-          currentPage,
-          ITEMS_PER_PAGE,
-          shouldShowPagination: totalEntriesCount > ITEMS_PER_PAGE
-        });
-        
-        setPaginatedState({
-          items: loadedEntries,
-          currentPage,
-          totalItems: totalEntriesCount,
-          itemsPerPage: ITEMS_PER_PAGE,
-          totalPages
-        });
+        setTotalItems(totalEntriesCount);
+
+        // For DB-paginated routes, check if there are more items to load
+        const isDBPaginated = !props.entries && !folderId && !location.pathname.startsWith('/starred') && !location.pathname.startsWith('/listened') && !location.pathname.startsWith('/recommended');
+        setHasMore(isDBPaginated && loadedEntries.length < totalEntriesCount);
       } catch (error) {
         console.error('Error loading entries:', error);
         setEntries([]);
-        setPaginatedState({
-          items: [],
-          currentPage: 1,
-          totalItems: 0,
-          itemsPerPage: ITEMS_PER_PAGE,
-          totalPages: 0
-        });
+        setTotalItems(0);
+        setHasMore(false);
       }
     };
 
+    // Reset state when route changes
+    setCurrentPage(1);
+    setHasMore(true);
     loadEntries();
-  }, [feedId, folderId, location.pathname, props.entries, currentPage]);
+  }, [feedId, folderId, location.pathname, props.entries]);
 
   const toggleExpanded = useCallback((entryId: number) => {
     // Don't toggle if content is short
@@ -478,27 +403,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       delete readTimerRef.current[entry.id!];
     }, 2000); // 2 second dwell time
   }, [entries, props.onEntriesUpdate]);
-
-  // Add handler for page changes
-  const handlePageChange = useCallback((page: number) => {
-    console.log('Changing to page:', page);
-    if (page === currentPage) return; // Don't reload if we're already on this page
-    
-    setTargetPage(page);
-    setCurrentPage(page);
-    setIsLoadingPage(true);
-    
-    // Reset selection when changing pages
-    onSelectedIndexChange(0);
-    
-    // Scroll to top for next page, bottom for previous page
-    if (listRef.current) {
-      listRef.current.scrollTo({
-        top: page > currentPage ? 0 : listRef.current.scrollHeight,
-        behavior: 'instant'
-      });
-    }
-  }, [currentPage, onSelectedIndexChange]);
 
   // Replace the database hook effect with this updated version
   useEffect(() => {
@@ -561,31 +465,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     };
   }, [feedId, location.pathname, props.entries]);
 
-  // Add pagination event listener
-  useEffect(() => {
-    const handlePageChange = (event: CustomEvent<{ page: number; selectIndex: number; direction: 'prev' | 'next' }>) => {
-      setCurrentPage(event.detail.page);
-      onSelectedIndexChange(event.detail.selectIndex);
-
-      // Wait for the page change to complete before scrolling
-      setTimeout(() => {
-        const scrollContainer = listRef.current;
-        if (!scrollContainer) return;
-
-        // If going to previous page, scroll to bottom, if next page, scroll to top
-        scrollContainer.scrollTo({
-          top: event.detail.direction === 'prev' ? scrollContainer.scrollHeight : 0,
-          behavior: 'instant'
-        });
-      }, 0);
-    };
-
-    window.addEventListener('feedListPageChange', handlePageChange as EventListener);
-    return () => {
-      window.removeEventListener('feedListPageChange', handlePageChange as EventListener);
-    };
-  }, [onSelectedIndexChange]);
-
   // Add this effect to handle read state changes
   useEffect(() => {
     const handleReadChange = (event: CustomEvent<{
@@ -613,7 +492,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       const { entryId, expandNext } = event.detail;
 
       // Build the post-dismiss list to determine next selection
-      const currentItems = paginatedItemsRef.current;
+      const currentItems = displayItemsRef.current;
       const currentIdx = currentItems.findIndex(e => e.id === entryId);
       const remainingItems = currentItems.filter(e => e.id !== entryId);
 
@@ -755,23 +634,13 @@ const FeedList: React.FC<FeedListProps> = (props) => {
         )}
         {displayItems.length === 0 ? (
           <div className={`text-center mt-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            {isLoadingPage ? 'Loading entries...' : (entries.length === 0 ? 'No entries to display' : 'No unread entries')}
+            {entries.length === 0 ? 'No entries to display' : 'No unread entries'}
           </div>
         ) : (
           <div className="flex flex-col min-h-full">
             <div className="flex-grow">
-              {isLoadingPage ? (
-                <div className={`text-center py-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  Loading page {targetPage}...
-                </div>
-              ) : (
-                <div
-                  data-current-page={paginatedState.currentPage}
-                  data-total-pages={paginatedState.totalPages}
-                  data-prev-page-items={paginatedState.currentPage > 1 ? ITEMS_PER_PAGE : 0}
-                  data-next-page-items={paginatedState.currentPage < paginatedState.totalPages ? ITEMS_PER_PAGE : 0}
-                >
-                  {displayItems.map((entry, index) => (
+              <div>
+                {displayItems.map((entry, index) => (
                     <FeedListEntry
                       key={entry.id}
                       entry={entry}
@@ -806,19 +675,29 @@ const FeedList: React.FC<FeedListProps> = (props) => {
                     />
                   ))}
                 </div>
-              )}
+
+                {/* Infinite scroll sentinel */}
+                {hasMore && (
+                  <div
+                    ref={sentinelRef as React.RefObject<HTMLDivElement>}
+                    className={`flex items-center justify-center py-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}
+                  >
+                    {isLoadingMore && (
+                      <svg className="h-5 w-5 animate-spin text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    )}
+                  </div>
+                )}
+
+                {/* End of list indicator */}
+                {!hasMore && displayItems.length > 0 && totalItems > ITEMS_PER_PAGE && (
+                  <div className={`text-center py-4 text-sm ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                    End of entries
+                  </div>
+                )}
             </div>
-            {paginatedState.totalItems > ITEMS_PER_PAGE && (
-              <div className={`sticky bottom-0 w-full z-10 ${isDarkMode ? 'bg-gray-800/90' : 'bg-white/90'} backdrop-blur-sm border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                <Pagination
-                  currentPage={targetPage}
-                  totalPages={paginatedState.totalPages}
-                  totalItems={paginatedState.totalItems}
-                  onPageChange={handlePageChange}
-                  isLoading={isLoadingPage}
-                />
-              </div>
-            )}
           </div>
         )}
       </div>

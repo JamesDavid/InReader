@@ -46,12 +46,6 @@ export interface FeedEntryScrollDetail {
   entryId: number;
 }
 
-export interface FeedListPageChangeDetail {
-  page: number;
-  selectIndex?: number;
-  direction: 'next' | 'prev';
-}
-
 export interface ChatModalScrollDetail {
   direction: 'up' | 'down';
 }
@@ -71,7 +65,6 @@ export interface AppEventMap {
   entryStarredChanged: EntryStarredChangedDetail;
   toggleEntryExpand: ToggleEntryExpandDetail;
   feedEntryScroll: FeedEntryScrollDetail;
-  feedListPageChange: FeedListPageChangeDetail;
   chatModalScroll: ChatModalScrollDetail;
   entryMarkedAsRead: EntryMarkedAsReadDetail;
 }

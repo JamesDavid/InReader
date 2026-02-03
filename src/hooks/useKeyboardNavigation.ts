@@ -120,25 +120,14 @@ export function useKeyboardNavigation({
           const maxItems = parseInt(sidebarElement?.getAttribute('data-sidebar-items-count') || '0');
           setSelectedSidebarIndex(prev => Math.min(prev + 1, maxItems - 1));
         } else {
-          const feedListElement = document.querySelector('main [data-current-page]');
+          const feedListElement = document.querySelector('main > div');
           if (!feedListElement) return;
 
           const maxItems = feedListElement.querySelectorAll('article').length;
-          const currentPage = parseInt(feedListElement.getAttribute('data-current-page') || '1');
-          const totalPages = parseInt(feedListElement.getAttribute('data-total-pages') || '1');
 
           if (maxItems > 0) {
             setSelectedFeedIndex(prev => {
               const nextIndex = prev + 1;
-              // If we're at the last item and there's a next page
-              if (nextIndex >= maxItems && currentPage < totalPages) {
-                dispatchAppEvent('feedListPageChange', {
-                  page: currentPage + 1,
-                  selectIndex: 0,
-                  direction: 'next'
-                });
-                return 0;
-              }
               if (nextIndex >= maxItems) {
                 return prev;
               }
@@ -160,11 +149,8 @@ export function useKeyboardNavigation({
         if (sidebarFocused) {
           setSelectedSidebarIndex(prev => Math.max(0, prev - 1));
         } else {
-          const feedListElement = document.querySelector('main [data-current-page]');
+          const feedListElement = document.querySelector('main > div');
           if (!feedListElement) return;
-
-          const currentPage = parseInt(feedListElement.getAttribute('data-current-page') || '1');
-          const prevPageItems = parseInt(feedListElement.getAttribute('data-prev-page-items') || '0');
 
           // Check if current entry needs scrolling
           const currentArticle = feedListElement.querySelector(`article[data-index="${selectedFeedIndex}"]`);
@@ -182,15 +168,6 @@ export function useKeyboardNavigation({
 
           setSelectedFeedIndex(prev => {
             const nextIndex = prev - 1;
-            // If we're at the first item and there's a previous page
-            if (nextIndex < 0 && currentPage > 1) {
-              dispatchAppEvent('feedListPageChange', {
-                page: currentPage - 1,
-                selectIndex: prevPageItems - 1,
-                direction: 'prev'
-              });
-              return prevPageItems - 1;
-            }
             if (nextIndex < 0) {
               return 0;
             }
@@ -304,35 +281,8 @@ export function useKeyboardNavigation({
         }
         break;
       case 'p': {
-        if (e.shiftKey && !sidebarFocused) {
-          e.preventDefault();
-          const feedListElement = document.querySelector('main [data-current-page]');
-          if (feedListElement) {
-            const currentPage = parseInt(feedListElement.getAttribute('data-current-page') || '1');
-            if (currentPage > 1) {
-              dispatchAppEvent('feedListPageChange', {
-                page: currentPage - 1,
-                direction: 'prev'
-              });
-            }
-          }
-        } else if (e.ctrlKey && !sidebarFocused) {
-          e.preventDefault();
-          const feedListElement = document.querySelector('main [data-current-page]');
-          if (feedListElement) {
-            const currentPage = parseInt(feedListElement.getAttribute('data-current-page') || '1');
-            const totalPages = parseInt(feedListElement.getAttribute('data-total-pages') || '1');
-            if (currentPage < totalPages) {
-              dispatchAppEvent('feedListPageChange', {
-                page: currentPage + 1,
-                direction: 'next'
-              });
-            }
-          }
-        } else {
-          e.preventDefault();
-          handlePopToCurrentItem();
-        }
+        e.preventDefault();
+        handlePopToCurrentItem();
         break;
       }
       case 'i':

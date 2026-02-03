@@ -94,8 +94,6 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 - `]` - Skip to next TTS item
 - `\` - Toggle TTS play/pause
 - `p` - Pop to currently playing article
-- `Shift+P` - Go to previous page
-- `Ctrl+P` - Go to next page
 
 ### 📱 Mobile Touch Gestures
 - **Swipe Left** - Mark entry as read and advance to next
