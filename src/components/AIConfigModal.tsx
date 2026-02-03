@@ -79,6 +79,8 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [selectedBrowserVoice, setSelectedBrowserVoice] = useState<string | null>(null);
   const [browserRate, setBrowserRate] = useState(1.0);
+  const [ttsTestStatus, setTtsTestStatus] = useState<string | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
 
   useEffect(() => {
     const config = loadAIConfig();
@@ -726,6 +728,31 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
                         />
                       </div>
 
+                      <button
+                        type="button"
+                        disabled={isTesting || !openaiApiKey}
+                        onClick={async () => {
+                          setIsTesting(true);
+                          setTtsTestStatus('Testing...');
+                          const result = await ttsService.testOpenAITTS();
+                          setTtsTestStatus(result.success ? 'Success!' : `Failed: ${result.error}`);
+                          setIsTesting(false);
+                        }}
+                        className={`w-full btn ${isDarkMode
+                          ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`}
+                      >
+                        {isTesting ? 'Testing...' : 'Test Voice'}
+                      </button>
+
+                      {ttsTestStatus && (
+                        <p className={`text-sm ${ttsTestStatus.startsWith('Failed')
+                          ? (isDarkMode ? 'text-red-400' : 'text-red-600')
+                          : (isDarkMode ? 'text-green-400' : 'text-green-600')}`}>
+                          {ttsTestStatus}
+                        </p>
+                      )}
+
                       <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                         OpenAI TTS costs ~$0.015 per 1,000 characters. A typical article costs $0.01-0.05.
                       </p>
@@ -776,6 +803,25 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
                           className="w-full"
                         />
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const utterance = new SpeechSynthesisUtterance('This is a test of browser text to speech.');
+                          if (selectedBrowserVoice) {
+                            const voice = browserVoices.find(v => v.name === selectedBrowserVoice);
+                            if (voice) utterance.voice = voice;
+                          }
+                          utterance.rate = browserRate;
+                          window.speechSynthesis.cancel();
+                          window.speechSynthesis.speak(utterance);
+                        }}
+                        className={`w-full btn ${isDarkMode
+                          ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`}
+                      >
+                        Test Voice
+                      </button>
 
                       <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                         Browser TTS is free but voice quality varies by browser and operating system.

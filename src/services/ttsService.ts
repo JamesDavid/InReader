@@ -457,6 +457,7 @@ class TTSService {
       const chunk = chunks[i];
 
       try {
+        console.log(`OpenAI TTS: Playing chunk ${i + 1}/${chunks.length} (${chunk.length} chars)`);
         const response = await fetch('/api/openai/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -470,10 +471,13 @@ class TTSService {
         });
 
         if (!response.ok) {
-          throw new Error(`TTS request failed: ${response.status}`);
+          const errorText = await response.text();
+          console.error('OpenAI TTS API error:', response.status, errorText);
+          throw new Error(`TTS request failed: ${response.status} - ${errorText}`);
         }
 
         const audioBlob = await response.blob();
+        console.log(`OpenAI TTS: Received audio blob (${audioBlob.size} bytes, type: ${audioBlob.type})`);
         const audioUrl = URL.createObjectURL(audioBlob);
 
         await this.playAudioElement(audioUrl, i === chunks.length - 1, article);
@@ -483,6 +487,56 @@ class TTSService {
         console.error('Error playing OpenAI TTS chunk:', error);
         throw error;
       }
+    }
+  }
+
+  // Test OpenAI TTS with a sample phrase
+  async testOpenAITTS(): Promise<{ success: boolean; error?: string }> {
+    const aiConfig = loadAIConfig();
+    const apiKey = aiConfig?.openaiApiKey;
+
+    if (!apiKey) {
+      return { success: false, error: 'No OpenAI API key configured' };
+    }
+
+    try {
+      const response = await fetch('/api/openai/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          model: 'tts-1',
+          voice: this.ttsConfig.openaiVoice,
+          input: 'This is a test of OpenAI text to speech.',
+          speed: this.ttsConfig.openaiSpeed
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return { success: false, error: `API error: ${response.status} - ${errorText}` };
+      }
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      return new Promise((resolve) => {
+        const audio = new Audio(audioUrl);
+        audio.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          resolve({ success: true });
+        };
+        audio.onerror = (e) => {
+          URL.revokeObjectURL(audioUrl);
+          resolve({ success: false, error: 'Audio playback failed' });
+        };
+        audio.play().catch((e) => {
+          URL.revokeObjectURL(audioUrl);
+          resolve({ success: false, error: `Playback error: ${e.message}` });
+        });
+      });
+    } catch (error) {
+      return { success: false, error: `Network error: ${(error as Error).message}` };
     }
   }
 
