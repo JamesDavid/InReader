@@ -12,20 +12,27 @@
   .sidebar-item {
     @apply px-4 py-2 hover:bg-reader-hover cursor-pointer text-sm;
   }
-  
+
   .feed-item {
     @apply border-b border-reader-border px-4 py-3 hover:bg-reader-hover cursor-pointer;
   }
-  
+
   .feed-title {
     @apply font-semibold text-reader-blue;
   }
-  
+
   .btn {
     @apply px-4 py-2 rounded text-sm;
   }
-  
+
   .btn-blue {
     @apply bg-reader-blue text-white hover:bg-opacity-90;
+  }
+}
+
+@layer utilities {
+  /* Safe area padding for iOS devices with home indicator */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
