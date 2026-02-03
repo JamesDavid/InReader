@@ -61,6 +61,7 @@ class TTSService {
   private loadConfig() {
     try {
       const saved = localStorage.getItem('ttsConfig');
+      console.log('TTS: Loading config, saved value:', saved);
       if (saved) {
         this.ttsConfig = { ...DEFAULT_TTS_CONFIG, ...JSON.parse(saved) };
       }
@@ -76,14 +77,17 @@ class TTSService {
       }
 
       this.rate = this.ttsConfig.browserRate;
+      console.log('TTS: Final config:', this.ttsConfig);
     } catch (e) {
       console.error('Failed to load TTS config:', e);
     }
   }
 
   saveConfig(config: Partial<TTSConfig>) {
+    console.log('TTS: saveConfig called with:', config);
     this.ttsConfig = { ...this.ttsConfig, ...config };
     localStorage.setItem('ttsConfig', JSON.stringify(this.ttsConfig));
+    console.log('TTS: Config saved, new config:', this.ttsConfig);
 
     // Update internal state
     if (config.browserRate !== undefined) {
@@ -333,13 +337,16 @@ class TTSService {
     });
 
     // If not currently playing, start playing the newly added item
+    console.log('TTS: Added to queue, isPlaying:', this.isPlaying, 'queue length:', this.queue.length);
     if (!this.isPlaying) {
       this.currentArticleIndex = this.queue.length - 1;
+      console.log('TTS: Starting playback, calling playNext()');
       this.playNext();
     }
   }
 
   private async playNext() {
+    console.log('TTS: playNext() called, queue length:', this.queue.length, 'currentIndex:', this.currentArticleIndex);
     if (this.queue.length === 0) {
       this.isPlaying = false;
       this.isPaused = false;
@@ -362,18 +369,22 @@ class TTSService {
       return;
     }
 
+    console.log('TTS: playNext() calling playArticle for:', article.title);
     await this.playArticle(article);
   }
 
   private async playArticle(article: QueuedArticle) {
+    console.log('TTS: playArticle() called, provider:', this.ttsConfig.provider);
     this.isPlaying = true;
     this.isPaused = false;
     this.currentArticle = article;
     this.notifyListeners();
 
     if (this.ttsConfig.provider === 'openai') {
+      console.log('TTS: Using OpenAI provider');
       await this.playArticleWithOpenAI(article);
     } else {
+      console.log('TTS: Using browser provider');
       await this.playArticleWithBrowser(article);
     }
   }
