@@ -15,13 +15,13 @@ export function formatRelativeDate(date: Date): string {
   if (days > 7) {
     return date.toLocaleDateString();
   } else if (days > 0) {
-    return `${days}d ago`;
+    return `${days}d`;
   } else if (hours > 0) {
-    return `${hours}h ago`;
+    return `${hours}h`;
   } else if (minutes > 0) {
-    return `${minutes}m ago`;
+    return `${minutes}m`;
   } else {
-    return 'just now';
+    return 'now';
   }
 }
 
