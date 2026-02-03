@@ -34,6 +34,9 @@ class TTSService {
   private isPaused: boolean = false;
   private currentUtterance: SpeechSynthesisUtterance | null = null;
   private currentAudio: HTMLAudioElement | null = null;
+  private currentAudioSource: AudioBufferSourceNode | null = null;
+  private currentAudioStartTime: number = 0;
+  private currentAudioDuration: number = 0;
   private voice: SpeechSynthesisVoice | null = null;
   private rate: number = 1;
   private currentArticle: QueuedArticle | null = null;
@@ -568,61 +571,76 @@ class TTSService {
     }
   }
 
-  private playAudioElement(url: string, isLastChunk: boolean, article: QueuedArticle): Promise<void> {
-    return new Promise((resolve, reject) => {
-      console.log('OpenAI TTS: Playing audio element, isLastChunk:', isLastChunk);
-      const audio = new Audio(url);
-      this.currentAudio = audio;
+  private async playAudioElement(url: string, isLastChunk: boolean, article: QueuedArticle): Promise<void> {
+    console.log('OpenAI TTS: Playing audio via Web Audio API, isLastChunk:', isLastChunk);
 
-      audio.onended = async () => {
-        console.log('OpenAI TTS: Audio ended, isLastChunk:', isLastChunk);
-        this.currentAudio = null;
+    const audioContext = this.getAudioContext();
 
-        if (isLastChunk) {
-          // Mark article as listened
-          try {
-            await markAsListened(article.id);
-          } catch (error) {
-            console.error('Failed to mark article as listened:', error);
-          }
+    // Resume AudioContext if suspended (handles autoplay policy)
+    if (audioContext.state === 'suspended') {
+      console.log('OpenAI TTS: Resuming suspended AudioContext');
+      await audioContext.resume();
+    }
 
-          // Remove the current article from the queue
-          const indexToRemove = this.currentArticleIndex;
-          this.queue = this.queue.filter((_, index) => index !== indexToRemove);
+    try {
+      // Fetch the audio data from the blob URL
+      const response = await fetch(url);
+      const arrayBuffer = await response.arrayBuffer();
 
-          // Adjust current index if needed
-          if (this.queue.length > 0) {
-            if (this.currentArticleIndex >= this.queue.length) {
-              this.currentArticleIndex = 0;
+      // Decode the audio data
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      console.log('OpenAI TTS: Audio decoded, duration:', audioBuffer.duration, 'seconds');
+
+      // Create a buffer source and play
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+
+      // Store reference for pause/stop control
+      this.currentAudioSource = source;
+      this.currentAudioStartTime = audioContext.currentTime;
+      this.currentAudioDuration = audioBuffer.duration;
+
+      return new Promise((resolve, reject) => {
+        source.onended = async () => {
+          console.log('OpenAI TTS: Audio ended, isLastChunk:', isLastChunk);
+          this.currentAudioSource = null;
+
+          if (isLastChunk) {
+            // Mark article as listened
+            try {
+              await markAsListened(article.id);
+            } catch (error) {
+              console.error('Failed to mark article as listened:', error);
             }
-            this.notifyListeners();
-            // Don't await playNext - let it run independently
-            this.playNext();
-          } else {
-            this.stopInternal();
+
+            // Remove the current article from the queue
+            const indexToRemove = this.currentArticleIndex;
+            this.queue = this.queue.filter((_, index) => index !== indexToRemove);
+
+            // Adjust current index if needed
+            if (this.queue.length > 0) {
+              if (this.currentArticleIndex >= this.queue.length) {
+                this.currentArticleIndex = 0;
+              }
+              this.notifyListeners();
+              // Don't await playNext - let it run independently
+              this.playNext();
+            } else {
+              this.stopInternal();
+            }
           }
-        }
 
-        resolve();
-      };
+          resolve();
+        };
 
-      audio.onerror = (e) => {
-        console.error('OpenAI TTS: Audio element error:', e);
-        this.currentAudio = null;
-        reject(new Error('Audio playback failed'));
-      };
-
-      audio.oncanplaythrough = () => {
-        console.log('OpenAI TTS: Audio can play through');
-      };
-
-      audio.play().then(() => {
-        console.log('OpenAI TTS: Audio play started');
-      }).catch((e) => {
-        console.error('OpenAI TTS: Audio play() failed:', e);
-        reject(e);
+        source.start(0);
+        console.log('OpenAI TTS: Audio playback started');
       });
-    });
+    } catch (error) {
+      console.error('OpenAI TTS: Web Audio API playback failed:', error);
+      throw error;
+    }
   }
 
   private async playArticleWithBrowser(article: QueuedArticle) {
@@ -738,15 +756,22 @@ class TTSService {
       return;
     }
 
-    if (this.ttsConfig.provider === 'openai' && this.currentAudio) {
-      if (this.isPaused) {
-        this.currentAudio.play();
-        this.isPaused = false;
-        this.isPlaying = true;
-      } else {
-        this.currentAudio.pause();
-        this.isPaused = true;
-        this.isPlaying = true;
+    if (this.ttsConfig.provider === 'openai') {
+      // Web Audio API doesn't support pause/resume easily
+      // For now, just toggle the playing state flag
+      // Full pause would require tracking position and restarting
+      if (this.currentAudioSource && this.audioContext) {
+        if (this.isPaused) {
+          // Resume: we'd need to recreate the source, for now just unpause flag
+          this.audioContext.resume();
+          this.isPaused = false;
+          this.isPlaying = true;
+        } else {
+          // Pause: suspend the audio context
+          this.audioContext.suspend();
+          this.isPaused = true;
+          this.isPlaying = true;
+        }
       }
     } else {
       if (this.isPaused) {
@@ -771,6 +796,14 @@ class TTSService {
     if (this.currentAudio) {
       this.currentAudio.pause();
       this.currentAudio = null;
+    }
+    if (this.currentAudioSource) {
+      try {
+        this.currentAudioSource.stop();
+      } catch (e) {
+        // Ignore if already stopped
+      }
+      this.currentAudioSource = null;
     }
     window.speechSynthesis.cancel();
 
@@ -807,6 +840,14 @@ class TTSService {
         this.currentAudio.pause();
         this.currentAudio = null;
       }
+      if (this.currentAudioSource) {
+        try {
+          this.currentAudioSource.stop();
+        } catch (e) {
+          // Ignore if already stopped
+        }
+        this.currentAudioSource = null;
+      }
       window.speechSynthesis.cancel();
 
       // Set the new index
@@ -822,6 +863,18 @@ class TTSService {
     if (this.currentAudio) {
       this.currentAudio.pause();
       this.currentAudio = null;
+    }
+    if (this.currentAudioSource) {
+      try {
+        this.currentAudioSource.stop();
+      } catch (e) {
+        // Ignore if already stopped
+      }
+      this.currentAudioSource = null;
+    }
+    // Resume audio context if it was suspended for pause
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      this.audioContext.resume();
     }
     window.speechSynthesis.cancel();
     this.isPlaying = false;
