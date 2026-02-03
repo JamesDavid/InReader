@@ -379,12 +379,14 @@ class TTSService {
   }
 
   private async playArticleWithOpenAI(article: QueuedArticle) {
+    console.log('OpenAI TTS: Starting playback for article:', article.title);
+    console.log('OpenAI TTS: Current config:', this.ttsConfig);
+
     const aiConfig = loadAIConfig();
     const apiKey = aiConfig?.openaiApiKey;
 
     if (!apiKey) {
-      console.error('No OpenAI API key configured');
-      // Fall back to browser TTS
+      console.error('OpenAI TTS: No API key configured, falling back to browser');
       await this.playArticleWithBrowser(article);
       return;
     }
@@ -395,19 +397,34 @@ class TTSService {
     if (article.summary) {
       parts.push(`Summary: ${article.summary}`);
     }
-    parts.push(article.content);
+    if (article.content) {
+      parts.push(article.content);
+    }
 
     const fullText = parts.join('. ');
+    console.log('OpenAI TTS: Full text length:', fullText.length);
+
+    if (fullText.length < 10) {
+      console.error('OpenAI TTS: Text too short, falling back to browser');
+      await this.playArticleWithBrowser(article);
+      return;
+    }
 
     // OpenAI TTS has a 4096 character limit per request
     // Split into chunks if needed
     const chunks = this.splitTextIntoChunks(fullText, 4000);
+    console.log('OpenAI TTS: Split into', chunks.length, 'chunks');
+
+    if (chunks.length === 0) {
+      console.error('OpenAI TTS: No chunks generated, falling back to browser');
+      await this.playArticleWithBrowser(article);
+      return;
+    }
 
     try {
       await this.playOpenAIChunks(chunks, article);
     } catch (error) {
-      console.error('OpenAI TTS failed:', error);
-      // Fall back to browser TTS
+      console.error('OpenAI TTS: Playback failed, falling back to browser:', error);
       await this.playArticleWithBrowser(article);
     }
   }
@@ -542,10 +559,12 @@ class TTSService {
 
   private playAudioElement(url: string, isLastChunk: boolean, article: QueuedArticle): Promise<void> {
     return new Promise((resolve, reject) => {
+      console.log('OpenAI TTS: Playing audio element, isLastChunk:', isLastChunk);
       const audio = new Audio(url);
       this.currentAudio = audio;
 
       audio.onended = async () => {
+        console.log('OpenAI TTS: Audio ended, isLastChunk:', isLastChunk);
         this.currentAudio = null;
 
         if (isLastChunk) {
@@ -566,6 +585,7 @@ class TTSService {
               this.currentArticleIndex = 0;
             }
             this.notifyListeners();
+            // Don't await playNext - let it run independently
             this.playNext();
           } else {
             this.stopInternal();
@@ -576,11 +596,21 @@ class TTSService {
       };
 
       audio.onerror = (e) => {
+        console.error('OpenAI TTS: Audio element error:', e);
         this.currentAudio = null;
         reject(new Error('Audio playback failed'));
       };
 
-      audio.play().catch(reject);
+      audio.oncanplaythrough = () => {
+        console.log('OpenAI TTS: Audio can play through');
+      };
+
+      audio.play().then(() => {
+        console.log('OpenAI TTS: Audio play started');
+      }).catch((e) => {
+        console.error('OpenAI TTS: Audio play() failed:', e);
+        reject(e);
+      });
     });
   }
 
