@@ -11,6 +11,8 @@ const TTSQueueStatus: React.FC<TTSQueueStatusProps> = ({ isDarkMode }) => {
   const [isPlaying, setIsPlaying] = useState(ttsService.isCurrentlyPlaying());
   const [isPaused, setIsPaused] = useState(ttsService.isPausedState());
   const [currentIndex, setCurrentIndex] = useState(ttsService.getCurrentIndex());
+  const [hasNext, setHasNext] = useState(ttsService.hasNext());
+  const [hasPrevious, setHasPrevious] = useState(ttsService.hasPrevious());
   const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
@@ -20,6 +22,8 @@ const TTSQueueStatus: React.FC<TTSQueueStatusProps> = ({ isDarkMode }) => {
       setIsPlaying(ttsService.isCurrentlyPlaying());
       setIsPaused(ttsService.isPausedState());
       setCurrentIndex(ttsService.getCurrentIndex());
+      setHasNext(ttsService.hasNext());
+      setHasPrevious(ttsService.hasPrevious());
     };
 
     const unsubscribe = ttsService.addListener(updateState);
@@ -108,8 +112,8 @@ const TTSQueueStatus: React.FC<TTSQueueStatusProps> = ({ isDarkMode }) => {
           <div className="flex justify-center items-center gap-2 my-3">
             <button
               onClick={() => ttsService.previous()}
-              disabled={currentIndex <= 0}
-              className={`${controlButtonClass} ${currentIndex <= 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={!hasPrevious}
+              className={`${controlButtonClass} ${!hasPrevious ? 'opacity-50 cursor-not-allowed' : ''}`}
               title="Previous"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -135,8 +139,8 @@ const TTSQueueStatus: React.FC<TTSQueueStatusProps> = ({ isDarkMode }) => {
 
             <button
               onClick={() => ttsService.next()}
-              disabled={currentIndex >= queueLength - 1}
-              className={`${controlButtonClass} ${currentIndex >= queueLength - 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={!hasNext}
+              className={`${controlButtonClass} ${!hasNext ? 'opacity-50 cursor-not-allowed' : ''}`}
               title="Next"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
