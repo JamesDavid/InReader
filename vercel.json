@@ -5,6 +5,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/openai/tts",
+      "destination": "/api/openai-tts"
+    },
+    {
       "source": "/api/openai/proxy",
       "destination": "/api/openai-proxy"
     },
