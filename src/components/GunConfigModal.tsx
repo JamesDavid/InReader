@@ -14,15 +14,16 @@ const GunConfigModal: React.FC<GunConfigModalProps> = ({
   isDarkMode
 }) => {
   const defaultRelays = [
-    'https://gun-manhattan.herokuapp.com/gun',
-    'https://relay.peer.ooo/gun',
-    'https://peer.gun.eco/gun'
+    'https://peer.gun.eco/gun',
+    'https://gun-us.herokuapp.com/gun',
+    'https://gun-eu.herokuapp.com/gun'
   ];
 
   const [relayServer, setRelayServer] = useState(defaultRelays[0]);
   const [privateKey, setPrivateKey] = useState('');
   const [publicKey, setPublicKey] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [shareFeedList, setShareFeedList] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
@@ -34,7 +35,8 @@ const GunConfigModal: React.FC<GunConfigModalProps> = ({
       setRelayServer(config.relayServer || defaultRelays[0]);
       setPrivateKey(config.privateKey || '');
       setDisplayName(config.displayName || '');
-      
+      setShareFeedList(config.shareFeedList || false);
+
       // Try to extract public key from private key
       if (config.privateKey) {
         try {
@@ -83,7 +85,8 @@ const GunConfigModal: React.FC<GunConfigModalProps> = ({
       await gunService.updateConfig({
         relayServer,
         privateKey,
-        displayName
+        displayName,
+        shareFeedList
       });
       onClose();
     } catch (err) {
@@ -212,7 +215,26 @@ const GunConfigModal: React.FC<GunConfigModalProps> = ({
         </div>
 
         <div>
-          <label 
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={shareFeedList}
+              onChange={(e) => setShareFeedList(e.target.checked)}
+              className="w-5 h-5 rounded border-gray-300 text-reader-blue focus:ring-reader-blue"
+            />
+            <div>
+              <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                Share my feed subscriptions
+              </span>
+              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                Allow followers to see and subscribe to your RSS feeds
+              </p>
+            </div>
+          </label>
+        </div>
+
+        <div>
+          <label
             className={`block text-sm font-medium mb-1 ${
               isDarkMode ? 'text-gray-300' : 'text-gray-700'
             }`}

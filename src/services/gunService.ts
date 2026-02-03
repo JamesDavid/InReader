@@ -1,5 +1,7 @@
 import Gun from 'gun';
 import 'gun/sea';
+import type { FeedEntry, Feed } from './db';
+import { getAllFeeds } from './db';
 
 const SEA = (Gun as any).SEA;
 
@@ -7,6 +9,22 @@ interface GunConfig {
   relayServer: string;
   privateKey: string;
   displayName: string;
+  shareFeedList: boolean;  // Whether to share feed subscriptions with followers
+}
+
+export interface SharedFeed {
+  id: number;
+  url: string;
+  title: string;
+  description?: string;
+  sharedAt: string;
+}
+
+export interface SharedFeedList {
+  feeds: SharedFeed[];
+  updatedAt: string;
+  userName: string;
+  userPub: string;
 }
 
 export function truncatePublicKey(pubKey: string): string {
@@ -20,7 +38,8 @@ class GunService {
   private config: GunConfig = {
     relayServer: '',
     privateKey: '',
-    displayName: ''
+    displayName: '',
+    shareFeedList: false
   };
   private connectionStatus: 'disconnected' | 'connecting' | 'connected' = 'disconnected';
   private connectionListeners: Set<(status: 'disconnected' | 'connecting' | 'connected') => void> = new Set();
@@ -181,6 +200,20 @@ class GunService {
     return !!this.user && !!this.config.privateKey;
   }
 
+  /**
+   * Safely get the current user's public key
+   * Returns null if not authenticated or key is invalid
+   */
+  getCurrentUserPubKey(): string | null {
+    if (!this.config.privateKey) return null;
+    try {
+      const keyPair = JSON.parse(this.config.privateKey);
+      return keyPair?.pub || null;
+    } catch {
+      return null;
+    }
+  }
+
   async shareItem(entry: FeedEntry, comment?: string) {
     if (!this.gun || !this.user) {
       throw new Error('Gun not initialized or user not authenticated');
@@ -219,17 +252,50 @@ class GunService {
     });
   }
 
-  async getSharedItems(userPubKey: string) {
+  /**
+   * Configuration for fetch timeouts
+   */
+  private static readonly FETCH_TIMEOUT_MS = 8000;  // Max time to wait for items
+  private static readonly FETCH_SETTLE_MS = 1500;   // Time to wait after last item received
+
+  async getSharedItems(userPubKey: string): Promise<any[]> {
     if (!this.gun) {
       throw new Error('Gun not initialized');
+    }
+
+    // Check connection status - warn but don't block
+    if (this.connectionStatus === 'disconnected') {
+      console.warn('Gun is disconnected, fetch may fail or return stale data');
     }
 
     console.log('Fetching shared items for user:', userPubKey);
 
     return new Promise((resolve, reject) => {
       const items: any[] = [];
-      let timeoutId: NodeJS.Timeout;
       let isResolved = false;
+      let settleTimeoutId: ReturnType<typeof setTimeout> | null = null;
+      let maxTimeoutId: ReturnType<typeof setTimeout>;
+
+      const cleanup = () => {
+        if (settleTimeoutId) clearTimeout(settleTimeoutId);
+        clearTimeout(maxTimeoutId);
+        // Unsubscribe from Gun listener
+        if (subscription && typeof subscription.off === 'function') {
+          subscription.off();
+        }
+      };
+
+      const resolveWithItems = () => {
+        if (isResolved) return;
+        isResolved = true;
+        cleanup();
+
+        const sortedItems = items.sort((a, b) =>
+          new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()
+        );
+        console.log('Resolving with items:', sortedItems.length);
+        resolve(sortedItems);
+      };
 
       const handleItem = (item: any, id: string) => {
         if (item && !isResolved) {
@@ -238,6 +304,10 @@ class GunService {
           if (!items.some(i => i.id === id)) {
             items.push({ ...item, id });
           }
+
+          // Reset settle timeout - wait for more items
+          if (settleTimeoutId) clearTimeout(settleTimeoutId);
+          settleTimeoutId = setTimeout(resolveWithItems, GunService.FETCH_SETTLE_MS);
         }
       };
 
@@ -247,41 +317,26 @@ class GunService {
         .map()
         .on(handleItem);
 
-      // Set a timeout to resolve the promise after collecting items
-      timeoutId = setTimeout(() => {
+      // Start initial settle timeout (in case no items arrive)
+      settleTimeoutId = setTimeout(resolveWithItems, GunService.FETCH_SETTLE_MS);
+
+      // Hard max timeout to prevent hanging forever
+      maxTimeoutId = setTimeout(() => {
         if (isResolved) return;
-        isResolved = true;
-
-        // Unsubscribe from Gun listener
-        if (subscription && typeof subscription.off === 'function') {
-          subscription.off();
-        }
-
-        console.log('Resolving with items:', items.length);
-        resolve(items.sort((a, b) =>
-          new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()
-        ));
-      }, 2000);
-
-      // Hard timeout to prevent hanging
-      setTimeout(() => {
-        if (isResolved) return;
-        isResolved = true;
-        clearTimeout(timeoutId);
-
-        // Unsubscribe from Gun listener
-        if (subscription && typeof subscription.off === 'function') {
-          subscription.off();
-        }
 
         if (items.length > 0) {
-          resolve(items.sort((a, b) =>
-            new Date(b.sharedAt).getTime() - new Date(a.sharedAt).getTime()
-          ));
+          // We have some items, resolve with what we have
+          resolveWithItems();
+        } else if (this.connectionStatus === 'disconnected') {
+          // No items and disconnected - likely a connection issue
+          isResolved = true;
+          cleanup();
+          reject(new Error('Unable to fetch shared items: not connected to relay server'));
         } else {
-          reject(new Error('Timeout getting shared items'));
+          // Connected but no items - user just has no shared items
+          resolveWithItems();
         }
-      }, 5000);
+      }, GunService.FETCH_TIMEOUT_MS);
     });
   }
 
@@ -292,15 +347,163 @@ class GunService {
     return this.getSharedItems(this.user.is.pub);
   }
 
-  async getUserProfile(pubKey: string) {
+  /**
+   * Share the user's feed subscription list
+   */
+  async shareFeedList(feeds: Array<{ id: number; url: string; title: string; description?: string }>) {
+    if (!this.gun || !this.user) {
+      throw new Error('Gun not initialized or user not authenticated');
+    }
+
+    if (!this.config.shareFeedList) {
+      throw new Error('Feed list sharing is disabled in settings');
+    }
+
+    const sharedFeedList = {
+      feeds: feeds.map(feed => ({
+        id: feed.id,
+        url: feed.url,
+        title: feed.title,
+        description: feed.description || null,
+        sharedAt: new Date().toISOString()
+      })),
+      updatedAt: new Date().toISOString(),
+      userName: this.config.displayName,
+      userPub: this.user.is.pub
+    };
+
+    return new Promise((resolve, reject) => {
+      this.user
+        .get('sharedFeedList')
+        .put(sharedFeedList, (ack: any) => {
+          if (ack.err) {
+            console.error('Error sharing feed list:', ack.err);
+            reject(new Error(ack.err));
+          } else {
+            console.log('Feed list shared successfully');
+            resolve(sharedFeedList);
+          }
+        });
+    });
+  }
+
+  /**
+   * Get a user's shared feed subscription list
+   */
+  async getSharedFeedList(userPubKey: string): Promise<SharedFeedList | null> {
     if (!this.gun) {
       throw new Error('Gun not initialized');
     }
 
+    if (!userPubKey) {
+      throw new Error('Public key is required');
+    }
+
     return new Promise((resolve, reject) => {
-      let timeoutId: NodeJS.Timeout;
+      let timeoutId: ReturnType<typeof setTimeout>;
+      let isResolved = false;
+
+      const handleFeedList = (data: any) => {
+        if (isResolved) return;
+        isResolved = true;
+        clearTimeout(timeoutId);
+
+        if (!data || !data.feeds) {
+          resolve(null);
+          return;
+        }
+
+        // Gun stores arrays in a special way, we need to reconstruct them
+        let feeds: SharedFeed[] = [];
+        if (Array.isArray(data.feeds)) {
+          feeds = data.feeds.filter((f: any) => f && f.url);
+        } else if (typeof data.feeds === 'object') {
+          // Gun may store arrays as objects with numeric keys
+          feeds = Object.values(data.feeds).filter((f: any) => f && f.url) as SharedFeed[];
+        }
+
+        resolve({
+          feeds,
+          updatedAt: data.updatedAt || new Date().toISOString(),
+          userName: data.userName || 'Unknown User',
+          userPub: userPubKey
+        });
+      };
+
+      this.gun
+        .user(userPubKey)
+        .get('sharedFeedList')
+        .once(handleFeedList);
+
+      timeoutId = setTimeout(() => {
+        if (isResolved) return;
+        isResolved = true;
+
+        if (this.connectionStatus === 'disconnected') {
+          reject(new Error('Unable to fetch feed list: not connected to relay server'));
+        } else {
+          // No feed list shared - resolve with null
+          resolve(null);
+        }
+      }, GunService.FETCH_TIMEOUT_MS);
+    });
+  }
+
+  /**
+   * Check if feed list sharing is enabled
+   */
+  isFeedListSharingEnabled(): boolean {
+    return this.config.shareFeedList;
+  }
+
+  /**
+   * Sync current feed subscriptions to Gun
+   * Fetches feeds from the local database and publishes them
+   */
+  async syncFeedsToGun(): Promise<void> {
+    if (!this.config.shareFeedList) {
+      throw new Error('Feed list sharing is disabled. Enable it in Gun settings first.');
+    }
+
+    if (!this.gun || !this.user) {
+      throw new Error('Gun not initialized or user not authenticated');
+    }
+
+    try {
+      const feeds = await getAllFeeds(false); // Don't include deleted feeds
+      const feedsToShare = feeds.map(feed => ({
+        id: feed.id!,
+        url: feed.url,
+        title: feed.title,
+        description: feed.description
+      }));
+
+      await this.shareFeedList(feedsToShare);
+      console.log(`Synced ${feedsToShare.length} feeds to Gun`);
+    } catch (error) {
+      console.error('Error syncing feeds to Gun:', error);
+      throw error;
+    }
+  }
+
+  private static readonly PROFILE_TIMEOUT_MS = 5000;
+
+  async getUserProfile(pubKey: string): Promise<{ pub: string; name: string }> {
+    if (!this.gun) {
+      throw new Error('Gun not initialized');
+    }
+
+    if (!pubKey) {
+      throw new Error('Public key is required');
+    }
+
+    return new Promise((resolve, reject) => {
+      let timeoutId: ReturnType<typeof setTimeout>;
+      let isResolved = false;
 
       const handleProfile = (profile: any) => {
+        if (isResolved) return;
+        isResolved = true;
         clearTimeout(timeoutId);
         resolve({
           pub: pubKey,
@@ -313,10 +516,23 @@ class GunService {
         .get('profile')
         .once(handleProfile);
 
-      // Set a timeout to reject if profile is not found
+      // Set a timeout - resolve with unknown user rather than rejecting
+      // This prevents the UI from breaking when a user hasn't set up their profile
       timeoutId = setTimeout(() => {
-        reject(new Error('Timeout getting user profile'));
-      }, 5000);
+        if (isResolved) return;
+        isResolved = true;
+
+        if (this.connectionStatus === 'disconnected') {
+          reject(new Error('Unable to fetch profile: not connected to relay server'));
+        } else {
+          // Resolve with unknown user - they may just not have set a profile
+          console.warn(`Profile timeout for ${truncatePublicKey(pubKey)}, using default`);
+          resolve({
+            pub: pubKey,
+            name: 'Unknown User'
+          });
+        }
+      }, GunService.PROFILE_TIMEOUT_MS);
     });
   }
 

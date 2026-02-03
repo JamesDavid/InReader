@@ -25,7 +25,7 @@ import SidebarSearchItem from './sidebar/SidebarSearchItem';
 import SidebarFeedItem from './sidebar/SidebarFeedItem';
 import SidebarHeader from './sidebar/SidebarHeader';
 import SidebarFeedFolder from './sidebar/SidebarFeedFolder';
-import { gunService } from '../services/gunService';
+import { gunService, truncatePublicKey } from '../services/gunService';
 
 interface NavigationItem {
   id?: string | number;
@@ -97,6 +97,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isKeyboardNavRef = useRef(false);
   const [gunFeeds, setGunFeeds] = useState<GunFeed[]>([]);
   const [isGunFeedsCollapsed, setIsGunFeedsCollapsed] = useState(false);
+  const [isSyncingToGun, setIsSyncingToGun] = useState(false);
 
   // Create search items from search history
   const searchItems = useMemo(() => 
@@ -464,13 +465,31 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [isRefreshing]);
 
+  const handleSyncFeedsToGun = async () => {
+    if (isSyncingToGun) return;
+    setIsSyncingToGun(true);
+    try {
+      await gunService.syncFeedsToGun();
+    } catch (error) {
+      console.error('Error syncing feeds to Gun:', error);
+      alert(error instanceof Error ? error.message : 'Failed to sync feeds');
+    } finally {
+      setIsSyncingToGun(false);
+    }
+  };
+
   // Update the effect that loads Gun feeds
   useEffect(() => {
     const loadGunFeeds = async () => {
       if (gunService.isAuthenticated()) {
         try {
           // Get the current user's profile
-          const currentUserKey = JSON.parse(gunService.getConfig().privateKey).pub;
+          const currentUserKey = gunService.getCurrentUserPubKey();
+          if (!currentUserKey) {
+            console.error('Failed to get current user public key');
+            setGunFeeds([]);
+            return;
+          }
           const currentUserProfile = await gunService.getUserProfile(currentUserKey);
           
           // Get followed users
@@ -549,6 +568,18 @@ const Sidebar: React.FC<SidebarProps> = ({
               onUpdateFolderOrder={() => Promise.resolve()}
               onRenameFolder={() => Promise.resolve()}
               onRenameFeed={() => Promise.resolve()}
+              buttons={gunService.isFeedListSharingEnabled() ? [
+                {
+                  icon: (
+                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 ${isSyncingToGun ? 'animate-spin' : ''}`} viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                    </svg>
+                  ),
+                  onClick: handleSyncFeedsToGun,
+                  disabled: isSyncingToGun,
+                  title: "Sync feed subscriptions to Gun"
+                }
+              ] : undefined}
             />
             {!isGunFeedsCollapsed && gunFeeds.map((feed) => {
               const itemIndex = visibleItems.findIndex(item => item.path === `/gun/${feed.pub}`);
