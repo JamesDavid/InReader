@@ -203,15 +203,34 @@ Click the lightning bolt icon in InReader to choose a provider and configure mod
 ```
 src/
 ├── components/
-│   ├── Layout.tsx          # Main layout and keyboard navigation
+│   ├── Layout.tsx          # Main layout with modal management
 │   ├── Sidebar.tsx         # Feed navigation and selection management
 │   ├── FeedList.tsx        # Entry display and interaction
-│   ├── FeedListEntry.tsx   # Individual entry with actions and display
+│   ├── FeedListEntry.tsx   # Individual entry orchestration
+│   ├── Toast.tsx           # Toast notification component
+│   ├── entry/              # Entry sub-components
+│   │   ├── EntryHeader.tsx    # Status badges, title, action buttons
+│   │   ├── EntryContent.tsx   # AI summary, markdown, action bar
+│   │   └── EntryMobileActions.tsx # Swipe-revealed action strip
 │   ├── SearchResults.tsx   # Search functionality
 │   ├── Header.tsx          # Search and dark mode
 │   ├── ChatModal.tsx       # Article chat interface
 │   ├── AIConfigModal.tsx   # AI provider and recommendation config
 │   └── FeedManagementModal.tsx # OPML import/export and feed management
+├── hooks/
+│   ├── useKeyboardNavigation.ts # All keyboard shortcut handling
+│   ├── useEntryState.ts    # Entry state sync with events and DB
+│   ├── useEntryScroll.ts   # Entry scroll behavior management
+│   ├── useMobileDetection.ts # Mobile viewport detection
+│   ├── useSwipeGesture.ts  # Touch swipe gesture handling
+│   └── usePullToRefresh.ts # Pull-to-refresh gesture
+├── utils/
+│   ├── dateFormatters.ts   # Date formatting utilities
+│   ├── contentFormatters.ts # Content formatting for sharing
+│   ├── ttsHelpers.ts       # TTS queue item helpers
+│   └── eventDispatcher.ts  # Type-safe custom event utilities
+├── types/
+│   └── events.ts           # Custom event type definitions
 ├── services/
 │   ├── db.ts              # Database schema, operations, and queries
 │   ├── aiService.ts       # AI provider integration (Ollama, OpenAI, Anthropic)
