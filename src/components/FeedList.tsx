@@ -9,6 +9,7 @@ import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { getInterestProfile } from '../services/interestService';
 import { useMobileDetection } from '../hooks/useMobileDetection';
+import { dispatchAppEvent } from '../utils/eventDispatcher';
 
 interface ContextType {
   isFocused: boolean;
@@ -156,21 +157,29 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   }, [feedId]);
 
   const handleToggleStar = useCallback(async (entryId: number) => {
+    const entry = entries.find(e => e.id === entryId);
+    const newStarred = !entry?.isStarred;
+    const starredDate = newStarred ? new Date() : undefined;
+
+    // Update local state immediately
+    setEntries(prev =>
+      prev.map(e =>
+        e.id === entryId
+          ? { ...e, isStarred: newStarred, starredDate }
+          : e
+      )
+    );
+
+    // Persist to DB
     await toggleStar(entryId);
-    // Then refresh from DB
-    const loadedEntries = props.entries
-      ? props.entries
-      : feedId
-        ? (await getFeedEntries(parseInt(feedId))).entries
-        : location.pathname === '/starred'
-          ? await getStarredEntries()
-          : location.pathname === '/listened'
-            ? await getListenedEntries()
-            : location.pathname === '/recommended'
-              ? await getRecommendedEntries()
-              : (await getAllEntries()).entries;
-    setEntries(loadedEntries);
-  }, [feedId, location.pathname, props.entries]);
+
+    // Notify other components (interest profile, etc.)
+    dispatchAppEvent('entryStarredChanged', {
+      entryId,
+      isStarred: newStarred,
+      starredDate,
+    });
+  }, [entries]);
 
   const getContentLength = (content: string): number => {
     const div = document.createElement('div');
@@ -438,37 +447,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     };
   }, []);
 
-  // Keep the existing database hook for other updates
-  useEffect(() => {
-    // Create the hook handler
-    const hookHandler = (modifications: any) => {
-      if (modifications.isStarred !== undefined) {
-        const loadEntries = async () => {
-          const loadedEntries = props.entries
-            ? props.entries
-            : feedId
-              ? (await getFeedEntries(parseInt(feedId))).entries
-              : location.pathname === '/starred'
-                ? await getStarredEntries()
-                : location.pathname === '/listened'
-                  ? await getListenedEntries()
-                  : location.pathname === '/recommended'
-                    ? await getRecommendedEntries()
-                    : (await getAllEntries()).entries;
-          setEntries(loadedEntries);
-        };
-        loadEntries();
-      }
-    };
-
-    // Subscribe to the hook
-    db.entries.hook('updating', hookHandler);
-
-    // Cleanup: unsubscribe from the hook
-    return () => {
-      db.entries.hook('updating').unsubscribe(hookHandler);
-    };
-  }, [feedId, location.pathname, props.entries]);
 
   // Add this effect to handle read state changes
   useEffect(() => {
