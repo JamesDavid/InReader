@@ -236,8 +236,9 @@ const Layout: React.FC = () => {
         {/* Mobile sidebar overlay */}
         {isMobileSidebarOpen && (
           <div
-            className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden touch-none"
+            className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden"
             onClick={() => setIsMobileSidebarOpen(false)}
+            onTouchMove={(e) => e.preventDefault()}
           />
         )}
         <Sidebar
@@ -249,6 +250,7 @@ const Layout: React.FC = () => {
             ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
             md:translate-x-0
             top-14 md:top-0 h-[calc(100vh-3.5rem)] md:h-auto
+            overscroll-y-contain
           `}
           isFocused={sidebarFocused}
           onFocusChange={setSidebarFocused}
