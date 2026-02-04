@@ -146,8 +146,15 @@ const Layout: React.FC = () => {
     localStorage.setItem('darkMode', JSON.stringify(isDarkMode));
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
+      document.body.style.backgroundColor = '#111827'; // gray-900
     } else {
       document.documentElement.classList.remove('dark');
+      document.body.style.backgroundColor = '#ffffff';
+    }
+    // Update theme-color meta tag for iOS browser chrome
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      meta.setAttribute('content', isDarkMode ? '#111827' : '#ffffff');
     }
   }, [isDarkMode]);
 
