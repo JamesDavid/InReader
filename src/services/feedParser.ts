@@ -337,11 +337,11 @@ export async function refreshFeeds(feeds: Feed[]) {
       if (stalledEntries.length > 0) {
         console.log('Found stalled entries for feed:', feed.title, stalledEntries.length);
         // Requeue each stalled entry
-        await Promise.all(stalledEntries.map(entry => 
+        stalledEntries.forEach(entry =>
           processEntry(entry.id!).catch(error => {
             console.error('Error reprocessing stalled entry:', error);
           })
-        ));
+        );
       }
     } catch (error) {
       console.error('Error checking for stalled entries:', error);
@@ -380,32 +380,30 @@ export async function refreshFeeds(feeds: Feed[]) {
         }
       }
 
-      // If we have new entries for this feed, process them immediately
-      if (newEntryIds.length > 0) {
-        const entries = await Promise.all(
-          newEntryIds.map(id => db.entries.get(id))
-        );
-        
-        // Sort entries by publish date, newest first
-        const sortedEntries = entries
-          .filter((entry): entry is FeedEntry => entry !== undefined)
-          .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
-
-        // Process all entries for this feed in parallel
-        console.log('Processing', sortedEntries.length, 'entries for feed:', feed.title);
-        await Promise.all(
-          sortedEntries.map(entry => 
-            processEntry(entry.id!).catch(error => {
-              console.error('Error processing entry:', error);
-            })
-          )
-        );
-      }
-
-      // Notify that this feed has been refreshed
+      // Notify that this feed has been refreshed (new entries are in DB)
+      // This lets the UI show new entries immediately before processing starts
       window.dispatchEvent(new CustomEvent('feedRefreshed', {
         detail: { feedId: feed.id }
       }));
+
+      // Process entries in background - each update flows to UI via notifyEntryUpdate
+      if (newEntryIds.length > 0) {
+        const entriesToProcess = await Promise.all(
+          newEntryIds.map(id => db.entries.get(id))
+        );
+
+        // Sort entries by publish date, newest first
+        const sortedEntries = entriesToProcess
+          .filter((entry): entry is FeedEntry => entry !== undefined)
+          .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
+
+        console.log('Processing', sortedEntries.length, 'entries for feed:', feed.title);
+        sortedEntries.forEach(entry =>
+          processEntry(entry.id!).catch(error => {
+            console.error('Error processing entry:', error);
+          })
+        );
+      }
 
       return { feed, newEntryIds };
     } catch (error) {
