@@ -72,10 +72,28 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   const handleSwipeArchive = useCallback(() => {
     if (!currentEntry.id) return;
     onMarkAsRead(currentEntry.id, true);
-    dispatchAppEvent('mobileSwipeDismiss', {
-      entryId: currentEntry.id,
-      index
-    });
+
+    // Collapse height like iOS Mail before removing from list
+    const el = articleRef.current;
+    if (el) {
+      el.style.height = `${el.offsetHeight}px`;
+      void el.offsetHeight; // force reflow
+      el.style.transition = 'height 200ms ease-out';
+      el.style.height = '0px';
+      el.style.borderBottomWidth = '0';
+
+      setTimeout(() => {
+        dispatchAppEvent('mobileSwipeDismiss', {
+          entryId: currentEntry.id,
+          index
+        });
+      }, 200);
+    } else {
+      dispatchAppEvent('mobileSwipeDismiss', {
+        entryId: currentEntry.id,
+        index
+      });
+    }
   }, [currentEntry.id, index, onMarkAsRead]);
 
   const handleSwipeLongPress = useCallback(() => {
