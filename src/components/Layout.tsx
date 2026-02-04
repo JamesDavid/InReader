@@ -168,6 +168,18 @@ const Layout: React.FC = () => {
     setIsMobileSidebarOpen(false);
   }, [location.pathname]);
 
+  // Lock body scroll when mobile sidebar is open to prevent navbar from scrolling off
+  useEffect(() => {
+    if (isMobileSidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isMobileSidebarOpen]);
+
   const handleToggleMobileSidebar = useCallback(() => {
     setIsMobileSidebarOpen(prev => !prev);
   }, []);
@@ -224,7 +236,7 @@ const Layout: React.FC = () => {
         {/* Mobile sidebar overlay */}
         {isMobileSidebarOpen && (
           <div
-            className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden"
+            className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden touch-none"
             onClick={() => setIsMobileSidebarOpen(false)}
           />
         )}
