@@ -82,7 +82,7 @@ const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      <header className={`h-14 flex-shrink-0 sticky top-0 z-40 border-b ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-reader-border'} flex items-center px-4 justify-between overflow-hidden`}>
+      <header className={`h-14 flex-shrink-0 z-40 border-b ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-reader-border'} flex items-center px-4 justify-between overflow-hidden`}>
         <div className="flex items-center gap-4">
           {/* Hamburger menu button - visible only on mobile */}
           <button
