@@ -26,10 +26,13 @@ export function useEntryState({ entry }: UseEntryStateOptions): UseEntryStateRes
   const [feedTitle, setFeedTitle] = useState(entry.feedTitle);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Sync with prop changes
+  // Sync with prop changes only when rendering a different entry.
+  // For the same entry, the DB subscription provides fresher data
+  // and must not be overwritten by a stale prop.
   useEffect(() => {
     setCurrentEntry(entry);
-  }, [entry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.id]);
 
   // Fetch feed title when feedId changes
   useEffect(() => {

@@ -8,6 +8,7 @@ import { refreshFeed, refreshFeeds } from '../services/feedParser';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { getInterestProfile } from '../services/interestService';
+import { useMobileDetection } from '../hooks/useMobileDetection';
 
 interface ContextType {
   isFocused: boolean;
@@ -43,12 +44,14 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const onSelectedEntryIdChange = context.onSelectedEntryIdChange;
   const onOpenChat = context.onOpenChat;
 
+  const isMobile = useMobileDetection();
   const [entries, setEntries] = useState<FeedEntryWithTitle[]>([]);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatEntry, setChatEntry] = useState<FeedEntryWithTitle | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const readTimerRef = useRef<{ [key: number]: NodeJS.Timeout }>({});
   const contentRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
+  const prevSelectedEntryIdRef = useRef<number | null>(null);
   const { feedId } = useParams();
   const location = useLocation();
   const folderId = location.pathname.startsWith('/folder/') ? location.pathname.split('/folder/')[1] : null;
@@ -386,13 +389,15 @@ const FeedList: React.FC<FeedListProps> = (props) => {
 
   const handleContentView = useCallback((entry: FeedEntryWithTitle) => {
     if (!entry.id || entry.isRead) return;
+    // On mobile, mark as read when navigating away instead of on a timer
+    if (isMobile) return;
 
-    // Set a timer to mark as read after dwelling
+    // Set a timer to mark as read after dwelling (desktop only)
     readTimerRef.current[entry.id] = setTimeout(async () => {
       await markAsRead(entry.id!);
       // Update the entry in the local state immediately
-      const updatedEntries = entries.map(e => 
-        e.id === entry.id 
+      const updatedEntries = entries.map(e =>
+        e.id === entry.id
           ? { ...e, isRead: true }
           : e
       );
@@ -402,7 +407,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       // Clean up the timer reference
       delete readTimerRef.current[entry.id!];
     }, 2000); // 2 second dwell time
-  }, [entries, props.onEntriesUpdate]);
+  }, [entries, props.onEntriesUpdate, isMobile]);
 
   // Replace the database hook effect with this updated version
   useEffect(() => {
@@ -529,6 +534,20 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       window.removeEventListener('mobileSwipeDismiss', handleDismiss as EventListener);
     };
   }, [onSelectedIndexChange, onSelectedEntryIdChange]);
+
+  // On mobile, mark previous entry as read when selecting a new one
+  useEffect(() => {
+    if (!isMobile) return;
+    const prevId = prevSelectedEntryIdRef.current;
+    prevSelectedEntryIdRef.current = selectedEntryId;
+
+    if (prevId && prevId !== selectedEntryId) {
+      const prevEntry = entries.find(e => e.id === prevId);
+      if (prevEntry && !prevEntry.isRead) {
+        handleMarkAsRead(prevId);
+      }
+    }
+  }, [selectedEntryId, isMobile, entries, handleMarkAsRead]);
 
   // Clear dismissed entries when route changes (navigating to different feed/view)
   useEffect(() => {
