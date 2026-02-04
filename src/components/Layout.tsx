@@ -192,7 +192,7 @@ const Layout: React.FC = () => {
   };
 
   return (
-    <div className={`h-screen flex flex-col ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
+    <div className={`h-screen h-dvh flex flex-col overflow-hidden ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
       <Header
         isDarkMode={isDarkMode}
         onDarkModeToggle={() => {
