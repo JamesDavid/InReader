@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useCallback, useMemo, useEffect } from 'react';
 import { type FeedEntryWithTitle } from '../services/db';
 import { reprocessEntry } from '../services/feedParser';
 import ttsService from '../services/ttsService';
@@ -53,7 +53,10 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   onOpenChat,
 }) => {
   const [bottomSheetOpen, setBottomSheetOpen] = useState(false);
+  const [isDismissing, setIsDismissing] = useState(false);
   const swipeContainerRef = useRef<HTMLDivElement>(null);
+  const collapseRef = useRef<HTMLDivElement>(null);
+  const dismissHeightRef = useRef(0);
 
   // Use extracted hooks
   const isMobile = useMobileDetection();
@@ -71,32 +74,40 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   // Swipe gesture handlers
   const handleSwipeArchive = useCallback(() => {
     if (!currentEntry.id) return;
-    onMarkAsRead(currentEntry.id, true);
+    // Measure height before any state changes, then trigger collapse
+    const el = collapseRef.current;
+    dismissHeightRef.current = el ? el.offsetHeight : 0;
+    setIsDismissing(true);
+  }, [currentEntry.id]);
 
-    // Collapse height like iOS Mail before removing from list
-    const el = articleRef.current;
-    if (el) {
-      el.style.height = `${el.offsetHeight}px`;
-
-      requestAnimationFrame(() => {
-        el.style.transition = 'height 200ms ease-out';
-        el.style.height = '0px';
-        el.style.borderBottomWidth = '0';
-
-        setTimeout(() => {
-          dispatchAppEvent('mobileSwipeDismiss', {
-            entryId: currentEntry.id,
-            index
-          });
-        }, 200);
-      });
-    } else {
-      dispatchAppEvent('mobileSwipeDismiss', {
-        entryId: currentEntry.id,
-        index
-      });
+  // Animate height collapse after React renders the dismissing state
+  useEffect(() => {
+    if (!isDismissing || !currentEntry.id) return;
+    const el = collapseRef.current;
+    if (!el) {
+      onMarkAsRead(currentEntry.id, true);
+      dispatchAppEvent('mobileSwipeDismiss', { entryId: currentEntry.id, index });
+      return;
     }
-  }, [currentEntry.id, index, onMarkAsRead]);
+
+    // Phase 1: set explicit height matching current (no visual change)
+    el.style.height = `${dismissHeightRef.current}px`;
+    el.style.overflow = 'hidden';
+
+    // Phase 2: on next frame (after paint), transition to 0
+    const rafId = requestAnimationFrame(() => {
+      el.style.transition = 'height 200ms ease-out';
+      el.style.height = '0px';
+    });
+
+    // Phase 3: after collapse, mark read and remove from list
+    const timerId = setTimeout(() => {
+      onMarkAsRead(currentEntry.id!, true);
+      dispatchAppEvent('mobileSwipeDismiss', { entryId: currentEntry.id, index });
+    }, 250);
+
+    return () => { cancelAnimationFrame(rafId); clearTimeout(timerId); };
+  }, [isDismissing, currentEntry.id, index, onMarkAsRead]);
 
   const handleSwipeLongPress = useCallback(() => {
     setBottomSheetOpen(true);
@@ -201,6 +212,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
   }, [contentRef, contentElementRef]);
 
   return (
+    <div ref={collapseRef}>
     <article
       ref={articleRef}
       data-index={index}
@@ -228,8 +240,8 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
           : ''}`}
       style={{ cursor: isChatOpen ? 'default' : 'pointer' }}
     >
-      {/* Action strip revealed by swipe-left */}
-      {isMobile && (
+      {/* Action strip revealed by swipe-left (hidden during dismiss) */}
+      {isMobile && !isDismissing && (
         <EntryMobileActions
           entry={currentEntry}
           isDarkMode={isDarkMode}
@@ -317,6 +329,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
         />
       )}
     </article>
+    </div>
   );
 };
 
