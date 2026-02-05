@@ -109,7 +109,7 @@ const EntryHeader: React.FC<EntryHeaderProps> = ({
             title="AI Summary available"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+              <path fillRule="evenodd" d="M10 1.5a1 1 0 110 2 1 1 0 010-2zM9.5 3.5h1V5h-1V3.5zM7 5h6a2 2 0 012 2v7a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2zm.5 2.75a1.25 1.25 0 100 2.5 1.25 1.25 0 000-2.5zm5 0a1.25 1.25 0 100 2.5 1.25 1.25 0 000-2.5zM7.5 12.5h5v1h-5v-1z" clipRule="evenodd" />
             </svg>
           </div>
         )}
