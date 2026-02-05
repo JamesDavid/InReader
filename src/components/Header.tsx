@@ -127,7 +127,7 @@ const Header: React.FC<HeaderProps> = ({
               title="AI Settings"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+                <path fillRule="evenodd" d="M10 1.5a1 1 0 110 2 1 1 0 010-2zM9.5 3.5h1V5h-1V3.5zM7 5h6a2 2 0 012 2v7a2 2 0 01-2 2H7a2 2 0 01-2-2V7a2 2 0 012-2zm.5 2.75a1.25 1.25 0 100 2.5 1.25 1.25 0 000-2.5zm5 0a1.25 1.25 0 100 2.5 1.25 1.25 0 000-2.5zM7.5 12.5h5v1h-5v-1z" clipRule="evenodd" />
               </svg>
             </button>
             {(queueStats.size > 0 || queueStats.pending > 0) && (
@@ -145,8 +145,11 @@ const Header: React.FC<HeaderProps> = ({
             className={`p-2 rounded-lg relative ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
             title="Gun.js Configuration"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M21.72,4.28l-3-3a1,1,0,0,0-1.42,0L16,2.59,15.29,1.88a1,1,0,0,0-1.42,0l-1.5,1.5a1,1,0,0,0,0,1.42l.71.71L4.21,14.38A1,1,0,0,0,4,15v3a1,1,0,0,0,.3.71l2,2A1,1,0,0,0,7,21H10a1,1,0,0,0,.62-.21l9.87-8.87.71.71a1,1,0,0,0,1.42,0l1.5-1.5a1,1,0,0,0,0-1.42L23.41,8.29l1.31-1.31a1,1,0,0,0,0-1.42l-3-3ZM9.38,19H7.41l-1-1V16.41l8.83-8.83,2.59,2.59Z"/>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <circle cx="10" cy="3" r="2"/>
+              <rect x="9.25" y="5" width="1.5" height="12.5"/>
+              <rect x="5.5" y="8.5" width="9" height="1.5" rx=".75"/>
+              <rect x="6.5" y="12.5" width="7" height="1.5" rx=".75"/>
             </svg>
             {isGunAuthenticated && (
               <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"></div>
@@ -159,12 +162,11 @@ const Header: React.FC<HeaderProps> = ({
           >
             {showUnreadOnly ? (
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074L3.707 2.293zm4.646 4.646L9.88 8.466A2.5 2.5 0 0111.534 10.12l1.527 1.527A4 4 0 008.353 6.94z" clipRule="evenodd" />
+                <path d="M10.584 13.935l-4.717-4.717A4 4 0 009.416 13.935zM2.458 10A9.996 9.996 0 005.68 14.906L3.707 16.88l-.024-.025A10.016 10.016 0 01.458 10z" />
               </svg>
             ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
+              <span className="text-base leading-none" role="img" aria-label="Showing all items">💯</span>
             )}
           </button>
           <button
