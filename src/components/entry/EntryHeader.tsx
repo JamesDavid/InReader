@@ -95,7 +95,7 @@ const EntryHeader: React.FC<EntryHeaderProps> = ({
                 : 'bg-green-100 text-green-800'}`}
             title="Full article content available"
           >
-            <span className="text-xs leading-none">💯</span>
+            <span className="text-[10px] font-bold leading-none text-white">100</span>
           </div>
         )}
         {entry.content_aiSummary && (
