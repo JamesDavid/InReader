@@ -1,21 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { 
-  getAllFeeds, 
-  getFolders,
-  deleteFeed,
-  deleteFolder,
-  updateSearchResultCounts,
-  updateFeedOrder,
-  updateFolderOrder,
-  updateFeedTitle,
-  updateFolderName,
-  db,
-  type Feed, 
-  type Folder, 
-  type SavedSearch 
-} from '../services/db';
-import { refreshFeeds } from '../services/feedParser';
+import { type SavedSearch } from '../services/db';
+import { useSidebarData } from '../hooks/useSidebarData';
 import AddFeedModal from './AddFeedModal';
 import SidebarMainItem from './sidebar/SidebarMainItem';
 import SidebarSearchItem from './sidebar/SidebarSearchItem';
@@ -66,14 +52,26 @@ const Sidebar: React.FC<SidebarProps> = ({
   onSelectedIndexChange,
   onOpenSearch
 }) => {
-  const [feeds, setFeeds] = useState<Feed[]>([]);
-  const [folders, setFolders] = useState<Folder[]>([]);
+  // Feed/folder data, loading, refresh-all and CRUD live in this hook.
+  const {
+    feeds,
+    folders,
+    isLoading,
+    isRefreshingAll,
+    refreshingFeeds,
+    loadData,
+    handleDeleteFeed,
+    handleRefreshAllFeeds,
+    handleCreateFolder,
+    handleUpdateFeedOrder,
+    handleDeleteFolder,
+    handleUpdateFolderOrder,
+    handleRenameFeed,
+    handleRenameFolder,
+  } = useSidebarData({ onRegisterRefreshFeeds });
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [isAddFeedModalOpen, setIsAddFeedModalOpen] = useState(false);
-  const [isRefreshingAll, setIsRefreshingAll] = useState(false);
-  const [refreshingFeeds, setRefreshingFeeds] = useState<Set<number>>(new Set());
   const [isSearchesCollapsed, setIsSearchesCollapsed] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const location = useLocation();
   const navigate = useNavigate();
   const sidebarRef = useRef<HTMLDivElement>(null);
@@ -193,73 +191,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     return items;
   }, [searchItems, feedItems, folders, feeds, isSearchesCollapsed, collapsedFolders]);
 
-  const loadData = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const [feedsData, foldersData] = await Promise.all([
-        getAllFeeds(),
-        getFolders()
-      ]);
-
-      // Sort feeds by order field
-      const sortedFeeds = feedsData.sort((a, b) => (a.order || 0) - (b.order || 0));
-      setFeeds(sortedFeeds);
-      setFolders(foldersData);
-      setIsLoading(false);
-    } catch (error) {
-      console.error('Error loading data:', error);
-      setFeeds([]);
-      setFolders([]);
-      setIsLoading(false);
-    }
-  }, []);
-
-  // Load feeds and folders on mount
-  useEffect(() => {
-    loadData();
-  }, []); // Empty dependency array since this is only for initial load
-
-  const handleDeleteFeed = async (id: number) => {
-    await deleteFeed(id);
-    loadData();
-  };
-
-  const handleRefreshAllFeeds = useCallback(async () => {
-    if (isRefreshingAll) return;
-    setIsRefreshingAll(true);
-    try {
-      const allFeeds = await getAllFeeds();
-      
-      // Set all feeds as refreshing
-      const feedIds = allFeeds.map(feed => feed.id!);
-      setRefreshingFeeds(new Set(feedIds));
-
-      // Use parallel refresh for all feeds
-      await refreshFeeds(allFeeds);
-      
-      // Update UI
-      await loadData();
-      
-      // Update search counts
-      await updateSearchResultCounts();
-      
-      // Notify components that all feeds have been refreshed
-      window.dispatchEvent(new CustomEvent('allFeedsRefreshed'));
-    } catch (error) {
-      console.error('Error refreshing all feeds:', error);
-    } finally {
-      setIsRefreshingAll(false);
-      setRefreshingFeeds(new Set());
-    }
-  }, [isRefreshingAll, loadData]);
-
-  // Register the refresh callback with Layout using the new function
-  useEffect(() => {
-    if (onRegisterRefreshFeeds) {
-      onRegisterRefreshFeeds(handleRefreshAllFeeds);
-    }
-  }, [onRegisterRefreshFeeds, handleRefreshAllFeeds]);
-
   // Route -> selection sync. Runs ONLY when the route (or the list) changes, so
   // it moves the highlight to match the active route (incl. browser back/forward
   // and direct links). It reads selectedIndex via a ref, so it does NOT re-run
@@ -297,77 +228,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       }
     }
   }, [selectedIndex, visibleItems.length]);
-
-  const handleCreateFolder = async (name: string) => {
-    try {
-      await db.folders.add({ name });
-      await loadData();
-    } catch (error) {
-      console.error('Error creating folder:', error);
-    }
-  };
-
-  const handleUpdateFeedOrder = async (updates: { feedId: number; folderId: string | null; order: number }[]) => {
-    try {
-      // Only allow reordering non-deleted feeds
-      const activeFeeds = await getAllFeeds(false);
-      const activeFeedIds = new Set(activeFeeds.map(f => f.id));
-      
-      const validUpdates = updates.filter(update => 
-        activeFeedIds.has(update.feedId)
-      ).map(update => ({
-        ...update,
-        folderId: update.folderId ? parseInt(update.folderId) : null
-      }));
-      
-      await updateFeedOrder(validUpdates);
-      await loadData();
-    } catch (error) {
-      console.error('Error updating feed order:', error);
-      await loadData();
-    }
-  };
-
-  const handleDeleteFolder = async (folderId: string) => {
-    try {
-      await deleteFolder(parseInt(folderId));
-      await loadData();
-    } catch (error) {
-      console.error('Error deleting folder:', error);
-    }
-  };
-
-  const handleUpdateFolderOrder = async (updates: { folderId: string; order: number }[]) => {
-    try {
-      const convertedUpdates = updates.map(update => ({
-        folderId: parseInt(update.folderId),
-        order: update.order
-      }));
-      
-      await updateFolderOrder(convertedUpdates);
-      await loadData();
-    } catch (error) {
-      console.error('Error updating folder order:', error);
-    }
-  };
-
-  const handleRenameFeed = async (feedId: number, newTitle: string) => {
-    try {
-      await updateFeedTitle(feedId, newTitle);
-      loadData(); // Refresh the feed list
-    } catch (error) {
-      console.error('Error renaming feed:', error);
-    }
-  };
-
-  const handleRenameFolder = async (folderId: string, newName: string) => {
-    try {
-      await updateFolderName(folderId, newName);
-      loadData(); // Refresh the folder list
-    } catch (error) {
-      console.error('Error renaming folder:', error);
-    }
-  };
 
   return (
     <div 
