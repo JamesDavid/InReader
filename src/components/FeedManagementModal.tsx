@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
+import { DragDropContext, Draggable, DropResult } from 'react-beautiful-dnd';
 import { PlusIcon, FolderIcon, RssIcon, XMarkIcon, TrashIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, PencilIcon } from '@heroicons/react/24/outline';
 import { StrictModeDroppable } from './StrictModeDroppable';
 import { importOpml, exportOpml } from '../services/opmlService';
-import { getAllFeeds } from '../services/db';
 
 interface Folder {
   id: string;
@@ -226,7 +225,7 @@ const DraggableFolder: React.FC<DraggableFolderProps> = ({
 
             {/* Feeds within folder */}
             <StrictModeDroppable droppableId={folder.id} type="FEED">
-              {(provided, snapshot) => (
+              {(provided, _snapshot) => (
                 <div
                   ref={provided.innerRef}
                   {...provided.droppableProps}
@@ -304,10 +303,6 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
 
   // Initialize organization state and folder order
   useEffect(() => {
-    // Only update if feeds or folders have actually changed
-    const feedsString = JSON.stringify(feeds);
-    const foldersString = JSON.stringify(folders);
-
     if (!isUpdating) {
       // Set up folder order only if it's different
       const newFolderOrder = [...folders];

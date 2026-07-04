@@ -49,7 +49,7 @@ const Layout: React.FC = () => {
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
 
   // Create refs to store callbacks
-  const [focusSearchCallback, setFocusSearchCallback] = useState<(() => void) | null>(null);
+  const [, setFocusSearchCallback] = useState<(() => void) | null>(null);
   const [refreshFeedsCallback, setRefreshFeedsCallback] = useState<(() => void) | null>(null);
 
   const loadSearchHistory = useCallback(async () => {

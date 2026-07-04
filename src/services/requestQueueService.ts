@@ -62,20 +62,6 @@ export const initializeQueue = (concurrency: number = 2) => {
   });
 };
 
-// Helper function for safe object cloning without circular references
-const safeClone = <T extends object>(obj: T): T => {
-  const seen = new WeakSet();
-  return JSON.parse(JSON.stringify(obj, (key, value) => {
-    if (typeof value === 'object' && value !== null) {
-      if (seen.has(value)) {
-        return undefined; // Remove circular reference
-      }
-      seen.add(value);
-    }
-    return value;
-  }));
-};
-
 // Helper function to create a minimal request object
 const createMinimalRequest = (request: QueuedRequest): QueuedRequest => {
   return {

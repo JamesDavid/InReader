@@ -1,5 +1,5 @@
 import { addEntry, addFeed, type Feed, type FeedEntry, db, notifyEntryUpdate } from './db';
-import { enqueueRequest, getQueueStats } from './requestQueueService';
+import { getQueueStats } from './requestQueueService';
 import { fetchArticleContent } from './articleService';
 import { generateSummary, loadAIConfig } from './aiService';
 import { parseSummaryAndTags, scoreEntry } from './interestService';
@@ -239,7 +239,7 @@ async function parseFeed(url: string): Promise<ParsedFeed> {
 }
 
 // Add new entries to database and process them
-async function processNewEntries(feedId: number, feedTitle: string, items: ParsedFeedItem[]) {
+async function processNewEntries(feedId: number, _feedTitle: string, items: ParsedFeedItem[]) {
   const newEntries: Omit<FeedEntry, 'id'>[] = [];
   
   // Filter out existing entries

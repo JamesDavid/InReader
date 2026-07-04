@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useOutletContext } from 'react-router-dom';
-import { searchEntries, saveSearch, updateSearchResultCounts, type FeedEntry, type FeedEntryWithTitle, getFeedTitle } from '../services/db';
+import { searchEntries, type FeedEntryWithTitle, getFeedTitle } from '../services/db';
 import FeedList from './FeedList';
 
 interface ContextType {
@@ -15,7 +15,7 @@ const SearchResults: React.FC = () => {
   const [entries, setEntries] = useState<FeedEntryWithTitle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { query } = useParams<{ query: string }>();
-  const { isDarkMode, isFocused, onFocusChange, onSearchHistoryUpdate, onSearchResultTimestamp } = useOutletContext<ContextType>();
+  const { isDarkMode, isFocused, onFocusChange, onSearchResultTimestamp } = useOutletContext<ContextType>();
 
   // Reset state when query changes
   useEffect(() => {

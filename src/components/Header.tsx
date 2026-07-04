@@ -1,5 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
 import AIConfigModal from './AIConfigModal';
 import KeyboardShortcutsModal from './KeyboardShortcutsModal';
 import TTSQueueStatus from './TTSQueueStatus';
@@ -25,9 +24,6 @@ const Header: React.FC<HeaderProps> = ({
   showUnreadOnly,
   onDarkModeToggle,
   onShowUnreadToggle,
-  showAddFeedModal,
-  onCloseAddFeedModal,
-  onRegisterFocusSearch,
   onToggleMobileSidebar,
   isMobileSidebarOpen,
   isShortcutsModalOpen,

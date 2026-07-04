@@ -1,9 +1,3 @@
-interface OllamaModel {
-  name: string;
-  modified_at: string;
-  size: number;
-}
-
 export interface AIConfig {
   provider: 'ollama' | 'openai' | 'anthropic';
   // Ollama
@@ -28,25 +22,7 @@ import { enqueueRequest, initializeQueue } from './requestQueueService';
 
 // --- Ollama helpers (unchanged from ollamaService.ts) ---
 
-const isPrivateUrl = (serverUrl: string): boolean => {
-  try {
-    const url = new URL(serverUrl);
-    const hostname = url.hostname.toLowerCase();
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') return true;
-    const ipMatch = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    if (ipMatch) {
-      const [, a, b] = ipMatch.map(Number);
-      if (a === 10) return true;
-      if (a === 172 && b >= 16 && b <= 31) return true;
-      if (a === 192 && b === 168) return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
-};
-
-export const shouldUseProxy = (serverUrl: string): boolean => {
+export const shouldUseProxy = (_serverUrl: string): boolean => {
   if (window.location.protocol === 'https:') {
     const host = window.location.hostname;
     if (host.endsWith('.vercel.app') || host.endsWith('.netlify.app')) {
@@ -285,7 +261,7 @@ export const chatFetch = async (
 
 export const generateSummary = async (
   content: string,
-  url: string,
+  _url: string,
   config: AIConfig,
   onToken?: (token: string) => void,
   entryId?: number

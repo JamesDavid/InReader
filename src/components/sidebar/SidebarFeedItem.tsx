@@ -42,9 +42,7 @@ const getBadgeColors = (timestamp: Date | null, isDarkMode: boolean): string => 
 
 const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
   id,
-  path,
   title,
-  isActive,
   isSelected,
   isDarkMode,
   index,

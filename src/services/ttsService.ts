@@ -32,11 +32,8 @@ class TTSService {
   private queue: QueuedArticle[] = [];
   private isPlaying: boolean = false;
   private isPaused: boolean = false;
-  private currentUtterance: SpeechSynthesisUtterance | null = null;
   private currentAudio: HTMLAudioElement | null = null;
   private currentAudioSource: AudioBufferSourceNode | null = null;
-  private currentAudioStartTime: number = 0;
-  private currentAudioDuration: number = 0;
   private voice: SpeechSynthesisVoice | null = null;
   private rate: number = 1;
   private currentArticle: QueuedArticle | null = null;
@@ -557,7 +554,7 @@ class TTSService {
           URL.revokeObjectURL(audioUrl);
           resolve({ success: true });
         };
-        audio.onerror = (e) => {
+        audio.onerror = () => {
           URL.revokeObjectURL(audioUrl);
           resolve({ success: false, error: 'Audio playback failed' });
         };
@@ -598,10 +595,8 @@ class TTSService {
 
       // Store reference for pause/stop control
       this.currentAudioSource = source;
-      this.currentAudioStartTime = audioContext.currentTime;
-      this.currentAudioDuration = audioBuffer.duration;
 
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve, _reject) => {
         source.onended = async () => {
           console.log('OpenAI TTS: Audio ended, isLastChunk:', isLastChunk);
           this.currentAudioSource = null;
@@ -726,19 +721,15 @@ class TTSService {
     content.onerror = (event) => handleUtteranceError(event, 'content');
 
     // Play the sequence with proper chaining
-    this.currentUtterance = intro;
     window.speechSynthesis.speak(intro);
 
     intro.onend = () => {
       if (summary) {
-        this.currentUtterance = summary;
         window.speechSynthesis.speak(summary);
         summary.onend = () => {
-          this.currentUtterance = content;
           window.speechSynthesis.speak(content);
         };
       } else {
-        this.currentUtterance = content;
         window.speechSynthesis.speak(content);
       }
     };
@@ -879,7 +870,6 @@ class TTSService {
     window.speechSynthesis.cancel();
     this.isPlaying = false;
     this.isPaused = false;
-    this.currentUtterance = null;
     this.currentArticle = null;
     this.currentArticleIndex = -1;
     this.stopChromePauseWorkaround();

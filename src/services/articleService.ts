@@ -1,6 +1,6 @@
 import { enqueueRequest } from './requestQueueService';
 import TurndownService from 'turndown';
-import { db, type FeedEntry, notifyEntryUpdate } from './db';
+import { db, notifyEntryUpdate } from './db';
 import { loadAIConfig, generateSummaryWithFallback } from './aiService';
 
 // Use relative URL so it works through nginx proxy in production

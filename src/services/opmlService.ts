@@ -1,14 +1,5 @@
-import { Feed, Folder, db } from './db';
+import { db } from './db';
 import { addNewFeed } from './feedParser';
-
-interface OpmlOutline {
-  text: string;
-  title?: string;
-  type?: string;
-  xmlUrl?: string;
-  htmlUrl?: string;
-  children?: OpmlOutline[];
-}
 
 export async function importOpml(opmlContent: string): Promise<{ feeds: number; folders: number }> {
   const parser = new DOMParser();

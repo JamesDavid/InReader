@@ -1,8 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { useParams, useLocation, useOutletContext, useSearchParams } from 'react-router-dom';
+import { useParams, useLocation, useOutletContext } from 'react-router-dom';
 import { getFeedEntries, getAllEntries, getStarredEntries, getListenedEntries, getRecommendedEntries, getFeedsByFolder, getAllFeeds, markAsRead, toggleStar, type FeedEntryWithTitle, db } from '../services/db';
 import ChatModal from './ChatModal';
-import ttsService from '../services/ttsService';
 import FeedListEntry from './FeedListEntry';
 import { refreshFeed, refreshFeeds } from '../services/feedParser';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
@@ -57,7 +56,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const location = useLocation();
   const folderId = location.pathname.startsWith('/folder/') ? location.pathname.split('/folder/')[1] : null;
   const [expandedEntries, setExpandedEntries] = useState<{ [key: number]: boolean }>({});
-  const [searchParams] = useSearchParams();
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -182,78 +180,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     const doc = new DOMParser().parseFromString(content, 'text/html');
     return (doc.body.textContent || '').length;
   };
-
-  const isContentFullyVisible = useCallback((entryId: number) => {
-    const contentElement = contentRefs.current[entryId];
-    if (!contentElement) return true;
-
-    const rect = contentElement.getBoundingClientRect();
-    const containerRect = listRef.current?.getBoundingClientRect();
-    if (!containerRect) return true;
-
-    return rect.bottom <= containerRect.bottom;
-  }, []);
-
-  const scrollContent = useCallback((entryId: number) => {
-    const contentElement = contentRefs.current[entryId];
-    if (!contentElement || !listRef.current) return;
-
-    const containerRect = listRef.current.getBoundingClientRect();
-    listRef.current.scrollBy({
-      top: containerRect.height * 0.5,
-      behavior: 'smooth'
-    });
-  }, []);
-
-  const handleSpaceKey = useCallback((entryId: number) => {
-    const entry = entries.find(e => e.id === entryId);
-    const content = entry?.content_fullArticle || entry?.content_rssAbstract || '';
-    const contentLength = getContentLength(content);
-    if (contentLength <= 600) return;
-
-    // If not expanded, expand it
-    if (!expandedEntries[entryId]) {
-      setExpandedEntries(prev => ({ ...prev, [entryId]: true }));
-      return;
-    }
-
-    // If expanded but not fully visible, scroll
-    if (!isContentFullyVisible(entryId)) {
-      scrollContent(entryId);
-      return;
-    }
-
-    // If expanded and fully visible, collapse
-    setExpandedEntries(prev => ({ ...prev, [entryId]: false }));
-  }, [entries, expandedEntries, isContentFullyVisible, scrollContent]);
-
-  const handleRefreshCurrentFeed = useCallback(async () => {
-    if (!feedId && !folderId) return;
-    
-    try {
-      if (feedId) {
-        const feed = await db.feeds.get(parseInt(feedId));
-        if (feed) {
-          await refreshFeed(feed);
-          const loadedEntries = (await getFeedEntries(parseInt(feedId))).entries;
-          setEntries(loadedEntries);
-        }
-      } else if (folderId) {
-        const folderFeeds = await getFeedsByFolder(parseInt(folderId));
-        // Use parallel refresh for folder feeds
-        await refreshFeeds(folderFeeds);
-        const entriesPromises = folderFeeds.map(feed => getFeedEntries(feed.id!));
-        const feedEntries = await Promise.all(entriesPromises);
-        const loadedEntries = feedEntries
-          .map(result => result.entries)
-          .flat()
-          .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
-        setEntries(loadedEntries);
-      }
-    } catch (error) {
-      console.error('Error refreshing feed:', error);
-    }
-  }, [feedId, folderId]);
 
   const handlePullToRefresh = useCallback(async () => {
     if (feedId) {
@@ -557,7 +483,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
 
   // Add this effect to handle entry reprocessing
   useEffect(() => {
-    const handleEntryReprocess = async (event: CustomEvent<{ entryId: number }>) => {
+    const handleEntryReprocess = async (_event: CustomEvent<{ entryId: number }>) => {
       // Reload the entries to get the updated content
       const loadedEntries = props.entries
         ? props.entries

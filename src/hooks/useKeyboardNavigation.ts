@@ -40,7 +40,6 @@ interface UseKeyboardNavigationOptions {
 export function useKeyboardNavigation({
   sidebarFocused,
   setSidebarFocused,
-  selectedSidebarIndex,
   setSelectedSidebarIndex,
   selectedFeedIndex,
   setSelectedFeedIndex,

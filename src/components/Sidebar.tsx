@@ -2,12 +2,10 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import { 
   getAllFeeds, 
-  getFolders, 
-  deleteSavedSearch, 
-  deleteFeed, 
-  deleteFolder, 
-  getUnreadEntries, 
-  updateSearchResultCounts, 
+  getFolders,
+  deleteFeed,
+  deleteFolder,
+  updateSearchResultCounts,
   updateFeedOrder,
   updateFolderOrder,
   updateFeedTitle,
@@ -17,23 +15,13 @@ import {
   type Folder, 
   type SavedSearch 
 } from '../services/db';
-import { refreshFeed, refreshFeeds } from '../services/feedParser';
+import { refreshFeeds } from '../services/feedParser';
 import AddFeedModal from './AddFeedModal';
-import ttsService from '../services/ttsService';
 import SidebarMainItem from './sidebar/SidebarMainItem';
 import SidebarSearchItem from './sidebar/SidebarSearchItem';
 import SidebarFeedItem from './sidebar/SidebarFeedItem';
 import SidebarHeader from './sidebar/SidebarHeader';
 import SidebarFeedFolder from './sidebar/SidebarFeedFolder';
-
-interface NavigationItem {
-  id?: string | number;
-  path: string;
-  title: string;
-  isFolder?: boolean;
-  unreadCount?: number;
-  onDelete?: () => Promise<void>;
-}
 
 interface SidebarProps {
   className?: string;
@@ -46,10 +34,6 @@ interface SidebarProps {
   selectedIndex: number;
   onSelectedIndexChange: (index: number) => void;
   onOpenSearch: () => void;
-}
-
-interface FeedItemWithUnread extends Feed {
-  order?: number;
 }
 
 interface VisibleItem {
@@ -72,9 +56,8 @@ const MAIN_ITEMS: VisibleItem[] = [
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ 
-  className = '', 
-  isFocused, 
-  onFocusChange, 
+  className = '',
+  onFocusChange,
   isDarkMode,
   onRegisterRefreshFeeds,
   searchHistory,
@@ -86,11 +69,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
-  const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
-  const [isReorderMode, setIsReorderMode] = useState(false);
-  const [draggedItem, setDraggedItem] = useState<NavigationItem | null>(null);
   const [isAddFeedModalOpen, setIsAddFeedModalOpen] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRefreshingAll, setIsRefreshingAll] = useState(false);
   const [refreshingFeeds, setRefreshingFeeds] = useState<Set<number>>(new Set());
   const [isSearchesCollapsed, setIsSearchesCollapsed] = useState(false);
@@ -256,7 +235,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       setRefreshingFeeds(new Set(feedIds));
 
       // Use parallel refresh for all feeds
-      const results = await refreshFeeds(allFeeds);
+      await refreshFeeds(allFeeds);
       
       // Update UI
       await loadData();
@@ -318,45 +297,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       }
     }
   }, [selectedIndex, visibleItems.length]);
-
-  const menuItemClass = useCallback((isActive: boolean, isSelected: boolean) => `
-    block px-4 py-2 text-sm transition-colors
-    ${isActive ? (isDarkMode ? 'bg-gray-700' : 'bg-reader-hover') : ''}
-    ${isSelected ? (isDarkMode ? 'ring-2 ring-reader-blue ring-opacity-50' : 'ring-2 ring-reader-blue ring-opacity-50') : ''}
-    ${isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-reader-hover'}
-  `, [isDarkMode]);
-
-  const handleQueueRecentUnread = useCallback(async () => {
-    try {
-      const currentItem = visibleItems[selectedIndex];
-      const feedItem = feedItems.find(item => item.path === currentItem.path);
-      if (feedItem && feedItem.id) {
-        // Get 5 most recent unread items from this feed
-        const recentUnread = await getUnreadEntries(feedItem.id);
-        recentUnread.sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
-        const top5 = recentUnread.slice(0, 5);
-
-        // Add each entry to the TTS queue
-        for (const entry of top5) {
-          const ttsEntry = {
-            ...entry,
-            id: entry.id!,
-            chatHistory: entry.chatHistory
-              ?.filter(msg => msg.role === 'user' || msg.role === 'assistant')
-              .map((msg, index) => ({
-                id: index,
-                role: msg.role as 'user' | 'assistant',
-                content: msg.content,
-                timestamp: new Date()
-              }))
-          };
-          await ttsService.addToQueue(ttsEntry);
-        }
-      }
-    } catch (error) {
-      console.error('Error queueing unread items:', error);
-    }
-  }, [visibleItems, selectedIndex, feedItems]);
 
   const handleCreateFolder = async (name: string) => {
     try {
@@ -428,41 +368,6 @@ const Sidebar: React.FC<SidebarProps> = ({
       console.error('Error renaming folder:', error);
     }
   };
-
-  const handleRefreshFeeds = useCallback(async () => {
-    if (isRefreshing) return;
-    setIsRefreshing(true);
-
-    try {
-      const feeds = await getAllFeeds();
-      for (const feed of feeds) {
-        if (feed.isDeleted) continue;
-        
-        // Dispatch event to start refresh for this feed
-        window.dispatchEvent(new CustomEvent('feedRefreshStart', {
-          detail: { feedId: feed.id }
-        }));
-
-        try {
-          await refreshFeed(feed.id);
-          // Dispatch success event
-          window.dispatchEvent(new CustomEvent('feedRefreshComplete', {
-            detail: { feedId: feed.id, success: true }
-          }));
-        } catch (error) {
-          console.error(`Error refreshing feed ${feed.id}:`, error);
-          // Dispatch error event
-          window.dispatchEvent(new CustomEvent('feedRefreshComplete', {
-            detail: { feedId: feed.id, success: false, error }
-          }));
-        }
-      }
-    } catch (error) {
-      console.error('Error refreshing feeds:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [isRefreshing]);
 
   return (
     <div 

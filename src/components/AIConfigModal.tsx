@@ -12,7 +12,7 @@ import {
 import { clearAllAISummaries, type InterestTag } from '../services/db';
 import { getQueueStats, clearQueue, initializeQueue } from '../services/requestQueueService';
 import { getInterestProfile, clearInterestProfile, rescoreAllTaggedEntries, deleteInterestTag } from '../services/interestService';
-import ttsService, { type TTSConfig, type OpenAIVoice, type TTSProvider } from '../services/ttsService';
+import ttsService, { type OpenAIVoice, type TTSProvider } from '../services/ttsService';
 
 interface AIConfigModalProps {
   isOpen: boolean;
