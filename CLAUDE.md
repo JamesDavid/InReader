@@ -35,7 +35,6 @@ InReader is a keyboard-driven RSS feed reader with AI integration, built as a lo
 - **Backend**: Express.js (feed parsing + article extraction)
 - **Database**: Dexie.js (IndexedDB wrapper) - all data stored locally in browser
 - **AI**: Ollama (local LLM for summaries and chat)
-- **Sync**: Gun.js (optional decentralized peer-to-peer feed sharing)
 
 ### Key Directories
 
@@ -55,7 +54,6 @@ src/
 │   ├── articleService.ts   # Full article extraction
 │   ├── ollamaService.ts    # LLM streaming requests
 │   ├── ttsService.ts       # Text-to-speech queue management
-│   ├── gunService.ts       # Peer-to-peer sync
 │   └── requestQueueService.ts  # p-queue concurrency control
 │
 └── types/            # TypeScript interfaces
@@ -86,13 +84,12 @@ Entry content is stored in three forms:
 /listened            → TTS listened entries
 /search/:query       → Search results
 /chats               → Saved AI conversations
-/gun/:pubKey         → Shared feed list (Gun.js)
 ```
 
 ### State Management
 
 - **React hooks**: Local component state
-- **localStorage**: User preferences (darkMode, ollamaConfig, gunConfig, selectedVoice)
+- **localStorage**: User preferences (darkMode, ollamaConfig, selectedVoice)
 - **IndexedDB**: All structured data via Dexie
 - **CustomEvent**: Entry update notifications across components
 

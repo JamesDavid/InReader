@@ -3,7 +3,6 @@ import Layout from './components/Layout';
 import FeedList from './components/FeedList';
 import SearchResults from './components/SearchResults';
 import ChatsView from './components/ChatsView';
-import GunFeedList from './components/GunFeedList';
 
 function App() {
   return (
@@ -18,7 +17,6 @@ function App() {
           <Route path="recommended" element={<FeedList />} />
           <Route path="chats" element={<ChatsView />} />
           <Route path="search/:query" element={<SearchResults />} />
-          <Route path="gun/:pubKey" element={<GunFeedList />} />
         </Route>
       </Routes>
     </BrowserRouter>

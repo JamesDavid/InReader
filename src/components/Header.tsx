@@ -1,11 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AIConfigModal from './AIConfigModal';
-import GunConfigModal from './GunConfigModal';
 import KeyboardShortcutsModal from './KeyboardShortcutsModal';
 import TTSQueueStatus from './TTSQueueStatus';
 import { getQueueStats } from '../services/requestQueueService';
-import { gunService } from '../services/gunService';
 
 interface HeaderProps {
   isDarkMode: boolean;
@@ -37,21 +35,7 @@ const Header: React.FC<HeaderProps> = ({
   onOpenSearch
 }) => {
   const [isOllamaModalOpen, setIsOllamaModalOpen] = useState(false);
-  const [isGunModalOpen, setIsGunModalOpen] = useState(false);
   const [queueStats, setQueueStats] = useState({ size: 0, pending: 0 });
-  const [isGunAuthenticated, setIsGunAuthenticated] = useState(false);
-
-  // Add Gun authentication check effect
-  useEffect(() => {
-    const checkGunAuth = () => {
-      setIsGunAuthenticated(gunService.isAuthenticated());
-    };
-    checkGunAuth();
-    window.addEventListener('gunAuthChanged', checkGunAuth);
-    return () => {
-      window.removeEventListener('gunAuthChanged', checkGunAuth);
-    };
-  }, []);
 
   // Add queue stats update effect
   useEffect(() => {
@@ -141,21 +125,6 @@ const Header: React.FC<HeaderProps> = ({
             )}
           </div>
           <button
-            onClick={() => setIsGunModalOpen(true)}
-            className={`p-2 rounded-lg relative ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
-            title="Gun.js Configuration"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <circle cx="10" cy="3" r="2"/>
-              <rect x="9.25" y="5" width="1.5" height="12.5"/>
-              <rect x="5.5" y="8.5" width="9" height="1.5" rx=".75"/>
-              <rect x="6.5" y="12.5" width="7" height="1.5" rx=".75"/>
-            </svg>
-            {isGunAuthenticated && (
-              <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"></div>
-            )}
-          </button>
-          <button
             onClick={onShowUnreadToggle}
             className={`p-2 rounded-lg ${isDarkMode ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
             title={showUnreadOnly ? "Showing unread only" : "Showing all items"}
@@ -191,12 +160,6 @@ const Header: React.FC<HeaderProps> = ({
       <AIConfigModal
         isOpen={isOllamaModalOpen}
         onClose={() => setIsOllamaModalOpen(false)}
-        isDarkMode={isDarkMode}
-      />
-
-      <GunConfigModal
-        isOpen={isGunModalOpen}
-        onClose={() => setIsGunModalOpen(false)}
         isDarkMode={isDarkMode}
       />
 
