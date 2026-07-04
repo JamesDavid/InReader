@@ -9,6 +9,7 @@ import {
   readCappedText,
   MAX_RESPONSE_BYTES,
   FETCH_TIMEOUT_MS,
+  LLM_TIMEOUT_MS,
 } from './api/_lib/urlSecurity.js';
 
 const app = express();
@@ -195,6 +196,8 @@ app.post('/api/ollama/proxy', async (req, res) => {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: body && method !== 'GET' ? JSON.stringify(body) : undefined,
+      // Generous: the target is the user's own (possibly slow) LLM server.
+      timeoutMs: LLM_TIMEOUT_MS,
     });
 
     if (!response.ok) {
@@ -265,7 +268,7 @@ app.post('/api/openai/proxy', async (req, res) => {
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify(requestBody)
-    });
+    }, LLM_TIMEOUT_MS);
 
     if (!response.ok) {
       const errorText = await readCappedText(response);
@@ -324,7 +327,7 @@ app.post('/api/anthropic/proxy', async (req, res) => {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify(requestBody)
-    });
+    }, LLM_TIMEOUT_MS);
 
     if (!response.ok) {
       const errorText = await readCappedText(response);

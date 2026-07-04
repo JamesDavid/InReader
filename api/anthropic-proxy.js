@@ -1,4 +1,5 @@
 import { fetchWithTimeout, pipeStream, readCappedText } from './_lib/streamProxy.js';
+import { LLM_TIMEOUT_MS } from './_lib/urlSecurity.js';
 
 export const config = {
   api: {
@@ -44,7 +45,7 @@ export default async function handler(req, res) {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify(requestBody)
-    });
+    }, LLM_TIMEOUT_MS);
 
     if (!response.ok) {
       const errorText = await readCappedText(response);

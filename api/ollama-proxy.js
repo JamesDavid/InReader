@@ -1,4 +1,4 @@
-import { validateUrl, safeFetch, readCappedText, MAX_RESPONSE_BYTES } from './_lib/urlSecurity.js';
+import { validateUrl, safeFetch, readCappedText, MAX_RESPONSE_BYTES, LLM_TIMEOUT_MS } from './_lib/urlSecurity.js';
 
 export const config = {
   api: {
@@ -37,6 +37,8 @@ export default async function handler(req, res) {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: body && method !== 'GET' ? JSON.stringify(body) : undefined,
+      // Generous: the target is the user's own (possibly slow) LLM server.
+      timeoutMs: LLM_TIMEOUT_MS,
     });
 
     if (!response.ok) {

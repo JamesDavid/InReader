@@ -6,6 +6,9 @@ import dns from 'node:dns/promises';
 import net from 'node:net';
 
 export const FETCH_TIMEOUT_MS = 15000;
+// Time-to-first-response budget for calls to a user's own trusted LLM server,
+// where a cold model load + prompt processing can legitimately take minutes.
+export const LLM_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 export const MAX_RESPONSE_BYTES = 10 * 1024 * 1024; // 10 MB
 export const MAX_REDIRECTS = 5;
 
@@ -143,7 +146,7 @@ export async function readCappedText(response, maxBytes = MAX_RESPONSE_BYTES) {
 // SSRF-safe fetch that manually follows redirects, re-validating (and
 // re-resolving) every hop, and enforces a timeout. Returns the final Response
 // (whose body has not yet been consumed).
-export async function safeFetch(urlString, { allowPrivate = false, method = 'GET', headers = {}, body } = {}) {
+export async function safeFetch(urlString, { allowPrivate = false, method = 'GET', headers = {}, body, timeoutMs = FETCH_TIMEOUT_MS } = {}) {
   let currentUrl = urlString;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -154,8 +157,11 @@ export async function safeFetch(urlString, { allowPrivate = false, method = 'GET
       throw err;
     }
 
+    // The timer guards time-to-response-headers only; it is cleared once fetch()
+    // resolves, so a slow streaming body (e.g. an LLM generating tokens) is not
+    // affected. Callers hitting a trusted LLM server pass a generous timeoutMs.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response;
     try {
       response = await fetch(currentUrl, {
