@@ -31,39 +31,36 @@ export function formatForSharing(entry: FeedEntryWithTitle): string {
 }
 
 /**
- * Get the text content length from HTML content
+ * Get the visible text length from HTML/markdown content.
+ * Uses DOMParser (which does not execute scripts or fetch resources) rather than
+ * assigning untrusted markup to a live element's innerHTML.
  */
 export function getContentLength(content: string): number {
-  const div = document.createElement('div');
-  div.innerHTML = content;
-  return (div.textContent || div.innerText || '').length;
+  const doc = new DOMParser().parseFromString(content, 'text/html');
+  return (doc.body.textContent || '').length;
 }
 
 /**
- * Get preview content, truncated if necessary
+ * Get preview content, truncated if necessary.
+ *
+ * The content here is Markdown (re-rendered by ReactMarkdown), so we truncate the
+ * raw string directly. The previous implementation walked HTML text nodes and
+ * then tried to map the collected plain text back onto the source with
+ * content.indexOf(result); once the source had any tags/markup between text
+ * nodes that indexOf returned -1 and the slice cut at an arbitrary offset,
+ * producing broken output.
  */
 export function getPreviewContent(content: string, expanded: boolean, maxChars: number = 500): string {
   if (!content) return '';
-  const contentLength = getContentLength(content);
-  if (contentLength <= 600) return content;
   if (expanded) return content;
+  if (getContentLength(content) <= 600) return content;
+  if (content.length <= maxChars) return content;
 
-  let charCount = 0;
-  let result = '';
-  const div = document.createElement('div');
-  div.innerHTML = content;
-  const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT);
-
-  while (walker.nextNode()) {
-    const node = walker.currentNode;
-    if (charCount + node.textContent!.length > maxChars) {
-      const remainingChars = maxChars - charCount;
-      result += node.textContent!.slice(0, remainingChars);
-      break;
-    }
-    charCount += node.textContent!.length;
-    result += node.textContent;
+  // Break on a word boundary near the limit so we don't cut mid-word / mid-token.
+  let truncated = content.slice(0, maxChars);
+  const lastSpace = truncated.lastIndexOf(' ');
+  if (lastSpace > maxChars * 0.6) {
+    truncated = truncated.slice(0, lastSpace);
   }
-
-  return content.slice(0, content.indexOf(result) + result.length) + '...';
+  return truncated.trimEnd() + '...';
 }

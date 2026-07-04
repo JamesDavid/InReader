@@ -142,7 +142,12 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
       setBrowserVoices(voices);
     };
     loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
+    // Use addEventListener + cleanup rather than assigning onvoiceschanged, which
+    // clobbers any other handler and keeps firing setBrowserVoices after unmount.
+    window.speechSynthesis.addEventListener('voiceschanged', loadVoices);
+    return () => {
+      window.speechSynthesis.removeEventListener('voiceschanged', loadVoices);
+    };
   }, []);
 
   const handleTestConnection = async (
