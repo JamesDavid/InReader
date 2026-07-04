@@ -315,9 +315,11 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
         setOrderedFolders(newFolderOrder);
       }
 
-      // Set up feed organization
+      // Set up feed organization. Honour the "Show deleted feeds" toggle so it
+      // is no longer a dead control: hide soft-deleted feeds unless requested.
+      const visibleFeeds = feeds.filter(feed => showDeleted || !feed.isDeleted);
       const newState: OrganizationState = {
-        unorganized: feeds
+        unorganized: visibleFeeds
           .filter(feed => !feed.folderId)
           .map(feed => ({
             ...feed,
@@ -325,9 +327,9 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
             draggableId: `feed-${feed.id}`
           })),
       };
-      
+
       folders.forEach(folder => {
-        newState[folder.id] = feeds
+        newState[folder.id] = visibleFeeds
           .filter(feed => feed.folderId === folder.id)
           .map(feed => ({
             ...feed,
@@ -341,7 +343,7 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
         setOrganizationState(newState);
       }
     }
-  }, [feeds, folders, isUpdating, orderedFolders, organizationState]);
+  }, [feeds, folders, isUpdating, orderedFolders, organizationState, showDeleted]);
 
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -374,11 +376,16 @@ const FeedManagementModal: React.FC<FeedManagementModalProps> = ({
         
         await onUpdateFolderOrder(updates);
       } else {
-        // Handle feed reordering
-        const newState = { ...organizationState };
+        // Handle feed reordering. Copy each array too — a shallow {...state}
+        // spread keeps the SAME array references, so splicing them would mutate
+        // the current React state in place and break the error-revert path.
+        const newState = {} as OrganizationState;
+        for (const key of Object.keys(organizationState)) {
+          newState[key] = [...organizationState[key]];
+        }
         const [movedFeed] = newState[source.droppableId].splice(source.index, 1);
         newState[destination.droppableId].splice(destination.index, 0, movedFeed);
-        
+
         setOrganizationState(newState);
         
         const updates = Object.entries(newState).flatMap(([folderId, feeds]) =>
