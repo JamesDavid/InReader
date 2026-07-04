@@ -9,6 +9,32 @@ import TurndownService from 'turndown';
 // and with Vite proxy in development
 const API_URL = '/api';
 
+// An entry whose last processing attempt is older than this is considered
+// stalled and may be safely reprocessed.
+const STALL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+// Run an async task over items with a bounded number in flight at once, so a
+// large multi-feed refresh doesn't launch hundreds of concurrent processEntry
+// calls all hammering IndexedDB at the same moment.
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  task: (item: T) => Promise<unknown>
+): Promise<void> {
+  const queue = [...items];
+  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length > 0) {
+      const item = queue.shift()!;
+      try {
+        await task(item);
+      } catch (error) {
+        console.error('Error processing entry:', error);
+      }
+    }
+  });
+  await Promise.all(workers);
+}
+
 // Create a shared TurndownService instance with the same config as articleService
 const turndownService = new TurndownService({
   headingStyle: 'atx',
@@ -55,19 +81,25 @@ async function processEntry(entryId: number) {
   }
 
   try {
-    // Check if entry is already being processed
-    if (entry.requestProcessingStatus === 'pending' && entry.lastRequestAttempt) {
+    // Skip only if another run touched this entry recently. Previously this
+    // bailed for ANY pending entry with a lastRequestAttempt, which permanently
+    // stranded genuinely stalled entries (they could never be reprocessed).
+    if (
+      entry.requestProcessingStatus === 'pending' &&
+      entry.lastRequestAttempt &&
+      Date.now() - new Date(entry.lastRequestAttempt).getTime() < STALL_TIMEOUT_MS
+    ) {
       console.log('Entry is already being processed:', entry.title);
       return;
     }
 
-    // Update status to pending before starting
+    // Mark the attempt. Do NOT clear an existing content_aiSummary here — if a
+    // later step fails transiently we would otherwise have destroyed a good
+    // summary. The summary is overwritten on success below.
     await db.entries.update(entryId, {
       requestProcessingStatus: 'pending',
       lastRequestAttempt: new Date(),
-      requestError: undefined,
-      content_aiSummary: undefined,
-      aiSummaryMetadata: undefined
+      requestError: undefined
     });
     notifyEntryUpdate(entryId);
 
@@ -157,8 +189,7 @@ async function processEntry(entryId: number) {
       tags: tags.length > 0 ? tags : undefined,
       aiSummaryMetadata: {
         isFullContent,
-        model: config.summaryModel,
-        contentLength: articleContent.content.length
+        model: config.summaryModel
       },
       requestProcessingStatus: 'success',
       lastRequestAttempt: new Date(),
@@ -276,14 +307,16 @@ export const reprocessEntry = async (entryId: number) => {
     throw new Error('AI not configured - please configure AI settings first');
   }
 
-  // Reset the entry's processing status but preserve full article content if it exists
+  // Reset the entry's processing status but preserve full article content if it
+  // exists. Use undefined (not null) for consistency with the rest of the code
+  // and correct index membership on content_aiSummary.
   await db.entries.update(entryId, {
     requestProcessingStatus: 'pending',
-    lastRequestAttempt: null,
-    requestError: null,
-    content_aiSummary: null,
+    lastRequestAttempt: undefined,
+    requestError: undefined,
+    content_aiSummary: undefined,
     content_fullArticle: entry.content_fullArticle,  // Preserve existing full article content
-    aiSummaryMetadata: null
+    aiSummaryMetadata: undefined
   });
 
   // Process the entry again
@@ -336,12 +369,8 @@ export async function refreshFeeds(feeds: Feed[]) {
 
       if (stalledEntries.length > 0) {
         console.log('Found stalled entries for feed:', feed.title, stalledEntries.length);
-        // Requeue each stalled entry
-        stalledEntries.forEach(entry =>
-          processEntry(entry.id!).catch(error => {
-            console.error('Error reprocessing stalled entry:', error);
-          })
-        );
+        // Requeue stalled entries with bounded concurrency.
+        runWithConcurrency(stalledEntries, 4, entry => processEntry(entry.id!));
       }
     } catch (error) {
       console.error('Error checking for stalled entries:', error);
@@ -398,11 +427,9 @@ export async function refreshFeeds(feeds: Feed[]) {
           .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
 
         console.log('Processing', sortedEntries.length, 'entries for feed:', feed.title);
-        sortedEntries.forEach(entry =>
-          processEntry(entry.id!).catch(error => {
-            console.error('Error processing entry:', error);
-          })
-        );
+        // Bounded concurrency so a large refresh doesn't fan out hundreds of
+        // simultaneous processEntry calls contending on IndexedDB.
+        runWithConcurrency(sortedEntries, 4, entry => processEntry(entry.id!));
       }
 
       return { feed, newEntryIds };
