@@ -112,7 +112,9 @@ export async function fetchArticleContent(url: string, entryId?: number): Promis
       genericError.code = 'UNKNOWN';
       throw genericError;
     }
-  }, entryId);
+    // Article extraction is an intermediate step; don't mark the entry's
+    // terminal processing status here (the summary step owns that).
+  }, entryId, { updateEntryStatus: false, type: 'article' });
 }
 
 export async function processEntryForSummary(entryId: number): Promise<void> {

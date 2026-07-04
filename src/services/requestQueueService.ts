@@ -4,6 +4,9 @@ import { db, updateRequestStatus } from './db';
 let queue: PQueue | null = null;
 
 interface QueuedRequest {
+  // Unique per enqueue call so tracking never confuses two requests that share
+  // the same entryId (e.g. an article fetch and a summary for one entry).
+  id: number;
   entryId?: number;
   feedId?: number;
   feedTitle?: string;
@@ -11,6 +14,18 @@ interface QueuedRequest {
   status: 'queued' | 'processing' | 'failed';
   addedAt: Date;
   error?: string;
+  type?: string;
+}
+
+let requestSeq = 0;
+
+interface EnqueueOptions {
+  priority?: number;
+  // Whether completion of this request should write the entry's terminal
+  // requestProcessingStatus ('success'/'failed'). Intermediate steps such as
+  // article extraction pass false so they don't mark the entry done before the
+  // summary has been generated.
+  updateEntryStatus?: boolean;
   type?: string;
 }
 
@@ -64,6 +79,7 @@ const safeClone = <T extends object>(obj: T): T => {
 // Helper function to create a minimal request object
 const createMinimalRequest = (request: QueuedRequest): QueuedRequest => {
   return {
+    id: request.id,
     entryId: request.entryId,
     feedId: request.feedId,
     feedTitle: request.feedTitle,
@@ -78,24 +94,28 @@ const createMinimalRequest = (request: QueuedRequest): QueuedRequest => {
 export const enqueueRequest = async <T>(
   request: () => Promise<T>,
   entryId?: number,
-  priority: number = 0
+  options: EnqueueOptions = {}
 ): Promise<T> => {
+  const { priority = 0, updateEntryStatus = true, type } = options;
+
   if (!queue) {
     console.log('Queue not initialized, creating with default concurrency');
     initializeQueue();
   }
 
+  const id = ++requestSeq;
+
   // Create a base request object
   let queuedRequest: QueuedRequest = {
+    id,
     status: 'queued',
     addedAt: new Date(),
-    type: entryId ? 'summary' : 'unknown'
+    type: type || (entryId ? 'summary' : 'unknown')
   };
 
   // Add entry-specific information if available
   if (typeof entryId === 'number') {
     try {
-      console.log('Getting entry information for:', entryId);
       const entry = await db.entries.get(entryId);
       if (!entry) {
         console.error('Entry not found:', entryId);
@@ -103,7 +123,6 @@ export const enqueueRequest = async <T>(
       }
 
       // Get feed information
-      console.log('Getting feed information for feedId:', entry.feedId);
       const feed = await db.feeds.get(entry.feedId);
       if (!feed) {
         console.error('Feed not found:', entry.feedId);
@@ -112,17 +131,20 @@ export const enqueueRequest = async <T>(
 
       // Create a minimal request object with only necessary information
       queuedRequest = {
+        id,
         entryId,
         feedId: entry.feedId,
         feedTitle: feed.title,
         entryTitle: entry.title,
         status: 'queued',
         addedAt: new Date(),
-        type: 'summary'
+        type: type || 'summary'
       };
 
       // Update entry status to pending and record attempt time
-      await updateRequestStatus(entryId, 'pending');
+      if (updateEntryStatus) {
+        await updateRequestStatus(entryId, 'pending');
+      }
     } catch (error) {
       console.error('Error checking entry status:', error);
       return Promise.reject(error);
@@ -132,19 +154,14 @@ export const enqueueRequest = async <T>(
   // Add to queued requests with minimal copy
   const queuedCopy = createMinimalRequest(queuedRequest);
   queuedRequests.push(queuedCopy);
-  
-  const stats = getQueueStats();
+
   window.dispatchEvent(new CustomEvent('queueChanged'));
-  
+
   try {
     const result = await queue!.add(async () => {
-      // Update request status to processing
-      const requestIndex = queuedRequests.findIndex(r => 
-        r.entryId === queuedRequest.entryId && 
-        r.feedId === queuedRequest.feedId
-      );
+      // Move this specific request (by unique id) from queued to processing.
+      const requestIndex = queuedRequests.findIndex(r => r.id === id);
       if (requestIndex !== -1) {
-        // Create a minimal processing request object
         const processingRequest = createMinimalRequest({
           ...queuedRequest,
           status: 'processing' as const
@@ -156,21 +173,22 @@ export const enqueueRequest = async <T>(
 
       try {
         const response = await request();
-        if (queuedRequest.entryId) {
+        if (queuedRequest.entryId && updateEntryStatus) {
           await updateRequestStatus(queuedRequest.entryId, 'success');
         }
-        // Remove from processing requests
-        processingRequests = processingRequests.filter(r => 
-          !(r.entryId === queuedRequest.entryId && r.feedId === queuedRequest.feedId)
-        );
-        
-        window.dispatchEvent(new CustomEvent('entryProcessingComplete', {
-          detail: { entryId: queuedRequest.entryId }
-        }));
-        
+        // Remove only this request from processing (by unique id).
+        processingRequests = processingRequests.filter(r => r.id !== id);
+
+        if (updateEntryStatus) {
+          window.dispatchEvent(new CustomEvent('entryProcessingComplete', {
+            detail: { entryId: queuedRequest.entryId }
+          }));
+        }
+        window.dispatchEvent(new CustomEvent('queueChanged'));
+
         return response as T;
       } catch (error) {
-        if (queuedRequest.entryId) {
+        if (queuedRequest.entryId && updateEntryStatus) {
           const errorInfo = {
             message: error instanceof Error ? error.message : 'Unknown error',
             code: (error as any).code,
@@ -185,10 +203,8 @@ export const enqueueRequest = async <T>(
           error: error instanceof Error ? error.message : 'Unknown error'
         });
         failedRequests.push(failedRequest);
-        processingRequests = processingRequests.filter(r => 
-          !(r.entryId === queuedRequest.entryId && r.feedId === queuedRequest.feedId)
-        );
-        
+        processingRequests = processingRequests.filter(r => r.id !== id);
+
         window.dispatchEvent(new CustomEvent('queueChanged'));
         throw error;
       }
