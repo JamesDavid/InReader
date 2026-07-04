@@ -88,9 +88,8 @@ const GunFeedList: React.FC = () => {
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to load data';
         setError(errorMessage);
-        if (!userProfile) {
-          setUserProfile({ pub: pubKey, name: 'Unknown User' });
-        }
+        // Functional update so we don't read a stale userProfile from the closure.
+        setUserProfile(prev => prev ?? { pub: pubKey, name: 'Unknown User' });
       } finally {
         setIsLoading(false);
       }
@@ -103,11 +102,15 @@ const GunFeedList: React.FC = () => {
     if (pubKey) {
       setError(null);
       setIsLoading(true);
+      // Reload the profile too, so a retry after a transient error repopulates
+      // the header instead of leaving a stale "Unknown User".
       Promise.all([
+        gunService.getUserProfile(pubKey),
         gunService.getSharedItems(pubKey),
         gunService.getSharedFeedList(pubKey)
       ])
-        .then(([sharedItems, feedList]) => {
+        .then(([profile, sharedItems, feedList]) => {
+          setUserProfile(profile as { pub: string; name: string });
           setItems(sharedItems as SharedItem[]);
           setSharedFeedList(feedList);
         })

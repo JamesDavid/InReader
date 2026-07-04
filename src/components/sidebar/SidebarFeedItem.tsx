@@ -48,12 +48,15 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
   isSelected,
   isDarkMode,
   index,
+  isRefreshing: isRefreshingProp,
   onSelect,
   onFocusChange,
   onUnreadCountChange
 }) => {
   const [unreadCount, setUnreadCount] = useState(0);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRefreshingState, setIsRefreshing] = useState(false);
+  // Refreshing if the parent says so (prop) or a refresh event fired for us.
+  const isRefreshing = isRefreshingProp || isRefreshingState;
   const [mostRecentTimestamp, setMostRecentTimestamp] = useState<Date | null>(null);
 
   const updateUnreadCount = useCallback(async () => {
