@@ -98,7 +98,7 @@ InReader combines the beloved simplicity of Google Reader with modern features l
 ### 📱 Mobile Touch Gestures
 - **Swipe Left** - Mark entry as read and advance to next
 - **Swipe Right** - Reveal quick-action strip (Star, Chat, Listen)
-- **Long Press** - Open bottom sheet with all actions (read/unread, star, chat, listen, copy, email, share, refresh, open in browser)
+- **Long Press** - Open bottom sheet with all actions (read/unread, star, chat, listen, copy, email, refresh, open in browser)
 - **Tap** - Select entry
 - **Tap outside strip** - Close revealed action strip
 
@@ -188,13 +188,28 @@ Click the lightning bolt icon in InReader to choose a provider and configure mod
 
 ## Tech Stack
 - React 18
-- TypeScript
+- TypeScript (strict)
 - Tailwind CSS
 - Dexie.js (IndexedDB)
 - Vite
-- Express.js (backend API)
+- Express.js (backend API) — the feed/article/AI-proxy endpoints validate and
+  resolve outbound URLs to prevent SSRF, with request timeouts and response
+  size caps
+- Vitest (unit tests), ESLint (flat config), GitHub Actions CI
 - Docker + nginx
 - HTTPS with self-signed certificates
+
+## Development & Quality
+
+```bash
+npm run dev      # frontend (Vite, :5173) + backend (Express, :3000)
+npm run lint     # ESLint (flat config), zero-warnings
+npm test         # Vitest unit tests
+npm run build    # tsc typecheck + production Vite build
+```
+
+CI (`.github/workflows/ci.yml`) runs lint, tests, the typecheck+build, and a
+backend syntax check on every push and pull request.
 
 ## Project Structure
 
@@ -214,11 +229,15 @@ src/
 │   ├── Header.tsx          # Search and dark mode
 │   ├── ChatModal.tsx       # Article chat interface
 │   ├── AIConfigModal.tsx   # AI provider and recommendation config
-│   └── FeedManagementModal.tsx # OPML import/export and feed management
+│   ├── FeedManagementModal.tsx # OPML import/export and feed management
+│   └── ErrorBoundary.tsx   # App-level error fallback (recoverable, no blank screen)
 ├── hooks/
 │   ├── useKeyboardNavigation.ts # All keyboard shortcut handling
+│   ├── useFeedEntries.ts   # FeedList entry loading, pagination, pull-to-refresh
+│   ├── useSidebarData.ts   # Sidebar feed/folder data, refresh, CRUD
 │   ├── useEntryState.ts    # Entry state sync with events and DB
 │   ├── useEntryScroll.ts   # Entry scroll behavior management
+│   ├── useInfiniteScroll.ts # IntersectionObserver-based infinite scroll
 │   ├── useMobileDetection.ts # Mobile viewport detection
 │   ├── useSwipeGesture.ts  # Touch swipe gesture handling
 │   └── usePullToRefresh.ts # Pull-to-refresh gesture
@@ -236,6 +255,7 @@ src/
 │   ├── feedParser.ts      # Feed parsing, entry processing, and summarization
 │   ├── articleService.ts  # Full article content extraction
 │   ├── ttsService.ts      # Text-to-speech queue management
+│   ├── requestQueueService.ts # Concurrency-limited request queue (p-queue)
 │   ├── opmlService.ts     # OPML import and export
 │   └── paginationService.ts # Pagination management
 └── App.tsx                # Root component and routes
