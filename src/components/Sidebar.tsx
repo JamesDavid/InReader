@@ -98,7 +98,13 @@ const Sidebar: React.FC<SidebarProps> = ({
   const location = useLocation();
   const navigate = useNavigate();
   const sidebarRef = useRef<HTMLDivElement>(null);
-  const isKeyboardNavRef = useRef(false);
+  // Mirror selectedIndex and the current path into refs so the two sync effects
+  // below can read the *current* value without listing it as a dependency —
+  // that's what stops route-sync and selection-nav from fighting each other.
+  const selectedIndexRef = useRef(selectedIndex);
+  selectedIndexRef.current = selectedIndex;
+  const pathRef = useRef(location.pathname);
+  pathRef.current = location.pathname;
 
   // Create search items from search history
   const searchItems = useMemo(() => 
@@ -275,30 +281,25 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [onRegisterRefreshFeeds, handleRefreshAllFeeds]);
 
-  // Keep initial route sync effect. isKeyboardNavRef is a one-shot flag: when a
-  // keyboard navigation just moved the route, consume it and skip this sync once
-  // (so we don't fight the user), then reset so later route changes — e.g.
-  // browser back/forward — still move the highlight to the active route.
+  // Route -> selection sync. Runs ONLY when the route (or the list) changes, so
+  // it moves the highlight to match the active route (incl. browser back/forward
+  // and direct links). It reads selectedIndex via a ref, so it does NOT re-run
+  // when the user changes the selection — that's what previously bounced a
+  // just-clicked feed back to the old route.
   useEffect(() => {
-    if (isKeyboardNavRef.current) {
-      isKeyboardNavRef.current = false;
-      return;
-    }
-    const currentPath = location.pathname;
-    const index = visibleItems.findIndex(item => item.path === currentPath);
-    if (index !== -1 && index !== selectedIndex) {
+    const index = visibleItems.findIndex(item => item.path === location.pathname);
+    if (index !== -1 && index !== selectedIndexRef.current) {
       onSelectedIndexChange(index);
     }
-  }, [location.pathname, visibleItems, selectedIndex, onSelectedIndexChange]);
+  }, [location.pathname, visibleItems, onSelectedIndexChange]);
 
-  // Navigation effect
+  // Selection -> route navigation. Runs ONLY when the user changes the selection
+  // (or the list changes). It reads the current path via a ref, so it does NOT
+  // re-run on route changes and therefore can't fight the sync effect above.
   useEffect(() => {
     if (selectedIndex >= 0 && selectedIndex < visibleItems.length) {
       const currentItem = visibleItems[selectedIndex];
-      const currentPath = location.pathname;
-      
-      if (currentItem && currentPath !== currentItem.path) {
-        isKeyboardNavRef.current = true;
+      if (currentItem && pathRef.current !== currentItem.path) {
         if (currentItem.isFolder) {
           navigate(`/folder/${currentItem.id!.toString()}`);
         } else {
@@ -306,7 +307,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         }
       }
     }
-  }, [selectedIndex, visibleItems, navigate, location.pathname]);
+  }, [selectedIndex, visibleItems, navigate]);
 
   // Keep scroll into view effect
   useEffect(() => {
