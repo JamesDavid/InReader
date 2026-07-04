@@ -16,7 +16,7 @@ interface SidebarHeaderProps {
   isLoading?: boolean;
   buttons?: HeaderButton[];
   folders: { id: string; name: string; }[];
-  feeds: { id: number; title: string; folderId: string | null; }[];
+  feeds: { id: number; title: string; folderId: string | null; isDeleted: boolean; }[];
   onCreateFolder: (name: string) => Promise<void>;
   onDeleteFolder: (folderId: string) => Promise<void>;
   onDeleteFeed: (feedId: number) => Promise<void>;

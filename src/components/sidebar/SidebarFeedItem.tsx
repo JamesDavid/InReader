@@ -13,6 +13,7 @@ interface SidebarFeedItemProps {
   index: number;
   isLoading: boolean;
   isRefreshing?: boolean;
+  isDeleted?: boolean;
   onSelect: (index: number) => void;
   onFocusChange: (focused: boolean) => void;
   onDelete: () => void;
@@ -48,6 +49,7 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
   isDarkMode,
   index,
   isRefreshing: isRefreshingProp,
+  isDeleted,
   onSelect,
   onFocusChange,
   onUnreadCountChange
@@ -85,13 +87,13 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
       }}
       data-index={index}
     >
-      <div className="flex items-center gap-2 overflow-hidden">
+      <div className={`flex items-center gap-2 overflow-hidden ${isDeleted ? 'opacity-60 italic' : ''}`}>
         {isRefreshing && (
-          <ArrowPathIcon 
+          <ArrowPathIcon
             className="w-4 h-4 animate-spin"
           />
         )}
-        <span className="truncate">{title}</span>
+        <span className="truncate">{title}{isDeleted ? ' (deleted)' : ''}</span>
       </div>
       <div className="flex items-center gap-2">
         {unreadCount > 0 && (

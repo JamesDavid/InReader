@@ -103,7 +103,7 @@ const FeedListEntry: React.FC<FeedListEntryProps> = ({
     // Phase 3: after collapse, mark read and remove from list
     const timerId = setTimeout(() => {
       onMarkAsRead(currentEntry.id!, true);
-      dispatchAppEvent('mobileSwipeDismiss', { entryId: currentEntry.id, index });
+      dispatchAppEvent('mobileSwipeDismiss', { entryId: currentEntry.id!, index });
     }, 250);
 
     return () => { cancelAnimationFrame(rafId); clearTimeout(timerId); };

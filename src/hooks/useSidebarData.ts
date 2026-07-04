@@ -164,7 +164,7 @@ export function useSidebarData({ onRegisterRefreshFeeds }: UseSidebarDataOptions
 
   const handleRenameFolder = async (folderId: string, newName: string) => {
     try {
-      await updateFolderName(folderId, newName);
+      await updateFolderName(parseInt(folderId), newName);
       loadData(); // Refresh the folder list
     } catch (error) {
       console.error('Error renaming folder:', error);

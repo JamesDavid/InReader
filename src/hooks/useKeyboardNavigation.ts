@@ -4,7 +4,7 @@
 
 import { useEffect, useCallback } from 'react';
 import ttsService from '../services/ttsService';
-import { db, markAsRead } from '../services/db';
+import { db, markAsRead, type FeedEntryWithTitle } from '../services/db';
 import { reprocessEntry } from '../services/feedParser';
 import { dispatchAppEvent } from '../utils/eventDispatcher';
 import { formatForSharing } from '../utils/contentFormatters';
@@ -29,7 +29,7 @@ interface UseKeyboardNavigationOptions {
   setIsShortcutsModalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   showAddFeedModal: boolean;
   setShowAddFeedModal: (open: boolean) => void;
-  setSelectedEntry: (entry: unknown) => void;
+  setSelectedEntry: (entry: FeedEntryWithTitle | null) => void;
   refreshFeedsCallback: (() => void) | null;
   handlePopToCurrentItem: () => void;
 }

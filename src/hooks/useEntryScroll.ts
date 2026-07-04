@@ -15,8 +15,8 @@ interface UseEntryScrollOptions {
 }
 
 interface UseEntryScrollResult {
-  articleRef: React.RefObject<HTMLElement | null>;
-  contentElementRef: React.RefObject<HTMLDivElement | null>;
+  articleRef: React.RefObject<HTMLElement>;
+  contentElementRef: React.MutableRefObject<HTMLDivElement | null>;
   checkVisibility: () => void;
   isContentFullyVisible: () => boolean;
   scrollContent: () => void;
@@ -34,7 +34,7 @@ export function useEntryScroll({
   content,
   onToggleExpand
 }: UseEntryScrollOptions): UseEntryScrollResult {
-  const articleRef = useRef<HTMLElement | null>(null);
+  const articleRef = useRef<HTMLElement>(null);
   const contentElementRef = useRef<HTMLDivElement | null>(null);
 
   /**

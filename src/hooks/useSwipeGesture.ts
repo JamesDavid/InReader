@@ -177,7 +177,9 @@ export function useSwipeGesture(
 
       touchStartRef.current = null;
 
-      let action: 'archive' | 'reveal' | 'snap-back' | 'none' = 'none';
+      // Held in an object so the assignments inside the setState updater (which
+      // TS can't prove runs synchronously) don't get narrowed away afterwards.
+      const decided: { action: 'archive' | 'reveal' | 'snap-back' | 'none' } = { action: 'none' };
 
       setState(prev => {
         if (!prev.isSwiping) return prev;
@@ -186,7 +188,7 @@ export function useSwipeGesture(
 
         if (prev.direction === 'left') {
           if (absX > archiveThreshold) {
-            action = 'archive';
+            decided.action = 'archive';
             return {
               ...prev,
               translateX: -window.innerWidth,
@@ -194,7 +196,7 @@ export function useSwipeGesture(
               isSwiping: false,
             };
           } else if (absX > revealThreshold) {
-            action = 'reveal';
+            decided.action = 'reveal';
             return {
               ...prev,
               translateX: -revealDistance,
@@ -206,7 +208,7 @@ export function useSwipeGesture(
         }
 
         // Snap back (including any right drag)
-        action = 'snap-back';
+        decided.action = 'snap-back';
         return {
           ...prev,
           translateX: 0,
@@ -216,6 +218,7 @@ export function useSwipeGesture(
         };
       });
 
+      const action = decided.action;
       if (action === 'archive') {
         scheduleTimeout(() => {
           callbacksRef.current.onSwipeLeft();

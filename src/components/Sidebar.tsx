@@ -305,7 +305,8 @@ const Sidebar: React.FC<SidebarProps> = ({
           feeds={feeds.map(feed => ({
             id: feed.id!,
             title: feed.title,
-            folderId: feed.folderId?.toString() || null
+            folderId: feed.folderId?.toString() || null,
+            isDeleted: feed.isDeleted || false
           }))}
           onCreateFolder={handleCreateFolder}
           onDeleteFolder={handleDeleteFolder}

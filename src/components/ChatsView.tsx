@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { getEntriesWithChats, type FeedEntry } from '../services/db';
+import { getEntriesWithChats, type FeedEntryWithTitle } from '../services/db';
 import FeedList from './FeedList';
 
 interface ContextType {
@@ -10,7 +10,7 @@ interface ContextType {
 }
 
 const ChatsView: React.FC = () => {
-  const [entries, setEntries] = useState<FeedEntry[]>([]);
+  const [entries, setEntries] = useState<FeedEntryWithTitle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { isDarkMode, isFocused, onFocusChange } = useOutletContext<ContextType>();
 
@@ -30,7 +30,7 @@ const ChatsView: React.FC = () => {
   }, []);
 
   // Update entries when they change
-  const handleEntriesUpdate = (updatedEntries: FeedEntry[]) => {
+  const handleEntriesUpdate = (updatedEntries: FeedEntryWithTitle[]) => {
     setEntries(updatedEntries);
   };
 
