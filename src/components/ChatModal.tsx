@@ -63,6 +63,19 @@ const ChatModal: React.FC<ChatModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isUsingFullContent, setIsUsingFullContent] = useState(false);
   const [isContentCollapsed, setIsContentCollapsed] = useState(false);
+  // Track mount + active stream reader so a mid-stream unmount (e.g. pressing
+  // Escape) cancels the in-flight network read and stops setState on a dead
+  // component instead of leaking the reader and warning.
+  const isMountedRef = useRef(true);
+  const activeReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      activeReaderRef.current?.cancel().catch(() => {});
+    };
+  }, []);
 
   // Add scroll to bottom function
   const scrollToBottom = useCallback((smooth = true) => {
@@ -164,8 +177,8 @@ const ChatModal: React.FC<ChatModalProps> = ({
     }
   }, [isOpen, fullArticleContent]);
 
-  const initializeChat = async () => {
-    if (!fullArticleContent) return;
+  const initializeChat = async (): Promise<ChatMessage[]> => {
+    if (!fullArticleContent) return [];
 
     try {
       const config = loadAIConfig();
@@ -201,15 +214,17 @@ const ChatModal: React.FC<ChatModalProps> = ({
             timestamp: now,
             id: 'system-' + Math.random().toString(36).substring(7)
           };
-          setMessages([systemMessage, ...validatedHistory]);
-          await db.entries.update(entryId, { 
-            chatHistory: [systemMessage, ...validatedHistory],
+          const withSystem = [systemMessage, ...validatedHistory];
+          setMessages(withSystem);
+          await db.entries.update(entryId, {
+            chatHistory: withSystem,
             lastChatDate: now
           });
+          return withSystem;
         } else {
           setMessages(validatedHistory);
+          return validatedHistory;
         }
-        return;
       }
 
       // If no history, initialize with system message and article content
@@ -223,14 +238,16 @@ const ChatModal: React.FC<ChatModalProps> = ({
 
       const initialMessages = [systemMessage];
       setMessages(initialMessages);
-      await db.entries.update(entryId, { 
+      await db.entries.update(entryId, {
         chatHistory: initialMessages,
         lastChatDate: now
       });
+      return initialMessages;
 
     } catch (err) {
       console.error('Error initializing chat:', err);
       setError('Failed to initialize chat');
+      return [];
     }
   };
 
@@ -301,6 +318,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
 
       const reader = response.body?.getReader();
       if (!reader) throw new Error('No response stream available');
+      activeReaderRef.current = reader;
 
       // Create a new message for streaming response
       const assistantMessage: ChatMessage = {
@@ -317,7 +335,7 @@ const ChatModal: React.FC<ChatModalProps> = ({
 
       // Process the stream
       let responseText = '';
-      while (true) {
+      while (isMountedRef.current) {
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -352,6 +370,10 @@ const ChatModal: React.FC<ChatModalProps> = ({
           }
         }
       }
+
+      activeReaderRef.current = null;
+      // If the modal was closed mid-stream, don't touch state or persist here.
+      if (!isMountedRef.current) return;
 
       // Save final chat history - use setMessages callback to get current state
       // to avoid stale closure issues from the streaming updates
@@ -561,8 +583,17 @@ const ChatModal: React.FC<ChatModalProps> = ({
                       if (isLoading || !fullArticleContent) return;
 
                       try {
-                        if (messages.length === 0) {
-                          await initializeChat();
+                        // Use the messages initializeChat actually created rather
+                        // than the stale (still-empty) `messages` closure, so the
+                        // system message isn't dropped from state/DB on the first
+                        // quick-analysis of a fresh entry.
+                        const baseMessages = messages.length === 0
+                          ? await initializeChat()
+                          : messages;
+
+                        const config = loadAIConfig();
+                        if (!config) {
+                          throw new Error('AI configuration not found');
                         }
 
                         // Create and add the user message
@@ -574,14 +605,9 @@ const ChatModal: React.FC<ChatModalProps> = ({
                         };
 
                         // Only add the user message initially
-                        const updatedMessages = [...messages, userMessage];
+                        const updatedMessages = [...baseMessages, userMessage];
                         setMessages(updatedMessages);
                         setIsTyping(true); // Show typing indicator
-
-                        const config = loadAIConfig();
-                        if (!config) {
-                          throw new Error('AI configuration not found');
-                        }
 
                         const apiMessages = [
                           {
@@ -605,12 +631,13 @@ const ChatModal: React.FC<ChatModalProps> = ({
 
                         const reader = response.body?.getReader();
                         if (!reader) throw new Error('No response stream available');
+                        activeReaderRef.current = reader;
 
                         // Create assistant message only when we get the first chunk
                         let assistantMessage: ChatMessage | null = null;
                         let responseText = '';
 
-                        while (true) {
+                        while (isMountedRef.current) {
                           const { done, value } = await reader.read();
                           if (done) break;
 
@@ -631,7 +658,9 @@ const ChatModal: React.FC<ChatModalProps> = ({
                                     content: responseText,
                                     timestamp: new Date(),
                                     id: 'assistant-' + Math.random().toString(36).substring(7),
-                                    model: activeModel
+                                    // Use config directly: activeModel may not have
+                                    // flushed yet on a fresh chat, leaving it ''.
+                                    model: config.chatModel
                                   };
                                   setIsTyping(false); // Remove typing indicator
                                   setMessages([...updatedMessages, assistantMessage]);
@@ -655,13 +684,14 @@ const ChatModal: React.FC<ChatModalProps> = ({
                           }
                         }
 
-                        // Save final chat history
-                        if (assistantMessage) {
+                        activeReaderRef.current = null;
+                        // Save final chat history (skip if unmounted mid-stream)
+                        if (assistantMessage && isMountedRef.current) {
                           const finalMessages = [...updatedMessages, {
                             ...assistantMessage,
                             content: responseText
                           }];
-                          await db.entries.update(entryId, { 
+                          await db.entries.update(entryId, {
                             chatHistory: finalMessages,
                             lastChatDate: new Date()
                           });
