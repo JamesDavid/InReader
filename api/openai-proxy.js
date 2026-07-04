@@ -1,3 +1,5 @@
+import { fetchWithTimeout, pipeStream, readCappedText } from './_lib/streamProxy.js';
+
 export const config = {
   api: {
     bodyParser: {
@@ -29,7 +31,7 @@ export default async function handler(req, res) {
     const requestBody = { model, messages, stream: Boolean(stream) };
     if (max_tokens) requestBody.max_tokens = max_tokens;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -39,54 +41,28 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await readCappedText(response);
       return res.status(response.status).json({ error: `OpenAI error: ${errorText}` });
     }
 
     if (stream && response.body) {
       // Normalize OpenAI SSE to NDJSON {"response":"token"} format
-      res.setHeader('Content-Type', 'application/x-ndjson');
-      res.setHeader('Transfer-Encoding', 'chunked');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith('data: ')) continue;
-            const data = trimmed.slice(6);
-            if (data === '[DONE]') continue;
-
-            try {
-              const json = JSON.parse(data);
-              const content = json.choices?.[0]?.delta?.content;
-              if (content) {
-                res.write(JSON.stringify({ response: content }) + '\n');
-              }
-            } catch (e) {
-              // ignore partial JSON
-            }
-          }
+      await pipeStream(response, res, (line) => {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) return null;
+        const data = trimmed.slice(6);
+        if (data === '[DONE]') return null;
+        try {
+          const json = JSON.parse(data);
+          const content = json.choices?.[0]?.delta?.content;
+          return content ? JSON.stringify({ response: content }) + '\n' : null;
+        } catch {
+          return null;
         }
-        res.end();
-      } catch (error) {
-        reader.cancel();
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Streaming error' });
-        }
-      }
+      });
     } else {
-      const data = await response.json();
+      const text = await readCappedText(response);
+      const data = JSON.parse(text);
       const content = data.choices?.[0]?.message?.content || '';
       res.json({ response: content });
     }

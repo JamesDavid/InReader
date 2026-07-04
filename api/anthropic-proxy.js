@@ -1,3 +1,5 @@
+import { fetchWithTimeout, pipeStream, readCappedText } from './_lib/streamProxy.js';
+
 export const config = {
   api: {
     bodyParser: {
@@ -34,7 +36,7 @@ export default async function handler(req, res) {
     };
     if (system) requestBody.system = system;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -45,52 +47,29 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await readCappedText(response);
       return res.status(response.status).json({ error: `Anthropic error: ${errorText}` });
     }
 
     if (stream && response.body) {
       // Normalize Anthropic SSE to NDJSON {"response":"token"} format
-      res.setHeader('Content-Type', 'application/x-ndjson');
-      res.setHeader('Transfer-Encoding', 'chunked');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith('data: ')) continue;
-            const data = trimmed.slice(6);
-
-            try {
-              const json = JSON.parse(data);
-              if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
-                res.write(JSON.stringify({ response: json.delta.text }) + '\n');
-              }
-            } catch (e) {
-              // ignore partial JSON
-            }
+      await pipeStream(response, res, (line) => {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) return null;
+        const data = trimmed.slice(6);
+        try {
+          const json = JSON.parse(data);
+          if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
+            return JSON.stringify({ response: json.delta.text }) + '\n';
           }
+          return null;
+        } catch {
+          return null;
         }
-        res.end();
-      } catch (error) {
-        reader.cancel();
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Streaming error' });
-        }
-      }
+      });
     } else {
-      const data = await response.json();
+      const text = await readCappedText(response);
+      const data = JSON.parse(text);
       const content = data.content?.[0]?.text || '';
       res.json({ response: content });
     }

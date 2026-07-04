@@ -1,7 +1,15 @@
 import express from 'express';
 import cors from 'cors';
 import Parser from 'rss-parser';
-import { extract } from '@extractus/article-extractor';
+import { extractFromHtml } from '@extractus/article-extractor';
+import {
+  validateUrl,
+  safeFetch,
+  safeFetchText,
+  readCappedText,
+  MAX_RESPONSE_BYTES,
+  FETCH_TIMEOUT_MS,
+} from './api/_lib/urlSecurity.js';
 
 const app = express();
 
@@ -77,66 +85,60 @@ app.use(rateLimit);
 
 const parser = new Parser();
 
-// URL validation to prevent SSRF attacks
-function isValidExternalUrl(urlString) {
-  if (!urlString || typeof urlString !== 'string') {
-    return { valid: false, error: 'URL is required and must be a string' };
-  }
-
-  let parsed;
+// fetch() with an abort timeout, for the fixed-host AI provider proxies.
+async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    parsed = new URL(urlString);
-  } catch {
-    return { valid: false, error: 'Invalid URL format' };
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  // Only allow http and https
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    return { valid: false, error: 'Only HTTP and HTTPS URLs are allowed' };
+// Pipe an upstream SSE/NDJSON stream to the client, transforming each complete
+// line via `transformLine` (return a string to forward, or null to skip).
+// Cancels the upstream reader if the client disconnects, and caps total bytes.
+async function pipeStream(response, res, transformLine) {
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let received = 0;
+  let clientGone = false;
+  res.on('close', () => { clientGone = true; reader.cancel().catch(() => {}); });
+
+  try {
+    while (!clientGone) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.length;
+      if (received > MAX_RESPONSE_BYTES) throw new Error('Response exceeded maximum allowed size');
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const out = transformLine(line);
+        if (out) res.write(out);
+      }
+    }
+    if (!clientGone) res.end();
+  } catch (error) {
+    console.error('Streaming error:', error);
+    reader.cancel().catch(() => {});
+    if (!res.headersSent) res.status(500).json({ error: 'Streaming error' });
+    else if (!clientGone) res.end();
   }
-
-  const hostname = parsed.hostname.toLowerCase();
-
-  // Block localhost and loopback
-  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]') {
-    return { valid: false, error: 'Local URLs are not allowed' };
-  }
-
-  // Block private IP ranges
-  const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ipv4Match) {
-    const [, a, b, c, d] = ipv4Match.map(Number);
-    // 10.0.0.0/8
-    if (a === 10) return { valid: false, error: 'Private IP addresses are not allowed' };
-    // 172.16.0.0/12
-    if (a === 172 && b >= 16 && b <= 31) return { valid: false, error: 'Private IP addresses are not allowed' };
-    // 192.168.0.0/16
-    if (a === 192 && b === 168) return { valid: false, error: 'Private IP addresses are not allowed' };
-    // 169.254.0.0/16 (link-local, includes cloud metadata)
-    if (a === 169 && b === 254) return { valid: false, error: 'Link-local addresses are not allowed' };
-    // 0.0.0.0
-    if (a === 0) return { valid: false, error: 'Invalid IP address' };
-  }
-
-  // Block cloud metadata endpoints
-  const blockedHosts = ['metadata.google.internal', 'metadata.goog'];
-  if (blockedHosts.includes(hostname)) {
-    return { valid: false, error: 'Metadata endpoints are not allowed' };
-  }
-
-  return { valid: true };
 }
 
 app.post('/api/parse-feed', async (req, res) => {
   try {
     const { url } = req.body;
 
-    const validation = isValidExternalUrl(url);
-    if (!validation.valid) {
-      return res.status(400).json({ error: validation.error });
-    }
-
-    const feed = await parser.parseURL(url);
+    // SSRF-safe fetch (validates + resolves the URL, re-validates every redirect
+    // hop, enforces a timeout and a response-size cap) then parse the XML text.
+    const xml = await safeFetchText(url);
+    const feed = await parser.parseString(xml);
     res.json({
       title: feed.title,
       items: feed.items.map(item => ({
@@ -148,7 +150,7 @@ app.post('/api/parse-feed', async (req, res) => {
     });
   } catch (error) {
     console.error('Error parsing feed:', error);
-    res.status(500).json({ error: 'Failed to parse feed' });
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to parse feed' });
   }
 });
 
@@ -156,13 +158,9 @@ app.post('/api/fetch-article', async (req, res) => {
   try {
     const { url } = req.body;
 
-    const validation = isValidExternalUrl(url);
-    if (!validation.valid) {
-      return res.status(400).json({ error: validation.error });
-    }
+    const html = await safeFetchText(url);
+    const article = await extractFromHtml(html, url);
 
-    const article = await extract(url);
-    
     if (!article) {
       throw new Error('Failed to extract article content');
     }
@@ -174,101 +172,78 @@ app.post('/api/fetch-article', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching article:', error);
-    res.status(500).json({ error: 'Failed to fetch article content' });
+    res.status(error.statusCode || 500).json({ error: error.message || 'Failed to fetch article content' });
   }
 });
 
-// Ollama proxy validation - allows local network IPs for Ollama
-function isValidOllamaUrl(urlString) {
-  if (!urlString || typeof urlString !== 'string') {
-    return { valid: false, error: 'URL is required and must be a string' };
-  }
-
-  let parsed;
-  try {
-    parsed = new URL(urlString);
-  } catch {
-    return { valid: false, error: 'Invalid URL format' };
-  }
-
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    return { valid: false, error: 'Only HTTP and HTTPS URLs are allowed' };
-  }
-
-  const hostname = parsed.hostname.toLowerCase();
-
-  // Block cloud metadata endpoints
-  const blockedHosts = ['metadata.google.internal', 'metadata.goog'];
-  if (blockedHosts.includes(hostname)) {
-    return { valid: false, error: 'Metadata endpoints are not allowed' };
-  }
-
-  // Allow localhost, private IPs for Ollama (user's LAN server)
-  return { valid: true };
-}
-
-// Ollama proxy endpoint - proxies requests to user's Ollama server
+// Ollama proxy endpoint - proxies requests to user's Ollama server.
+// `allowPrivate: true` because the target is intentionally the user's LAN /
+// localhost Ollama server; cloud-metadata and link-local ranges are still blocked.
 app.post('/api/ollama/proxy', async (req, res) => {
   try {
     const { targetUrl, method = 'GET', body } = req.body;
 
     console.log('Ollama proxy request:', { targetUrl, method, stream: body?.stream });
 
-    const validation = isValidOllamaUrl(targetUrl);
+    const validation = await validateUrl(targetUrl, { allowPrivate: true });
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
     }
 
-    const fetchOptions = {
+    const response = await safeFetch(targetUrl, {
+      allowPrivate: true,
       method,
-      headers: { 'Content-Type': 'application/json' }
-    };
-
-    if (body && method !== 'GET') {
-      fetchOptions.body = JSON.stringify(body);
-    }
-
-    const response = await fetch(targetUrl, fetchOptions);
+      headers: { 'Content-Type': 'application/json' },
+      body: body && method !== 'GET' ? JSON.stringify(body) : undefined,
+    });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await readCappedText(response);
       console.error('Ollama server error:', response.status, errorText);
       return res.status(response.status).json({ error: `Ollama error: ${errorText}` });
     }
 
     // Check if this is a streaming response
     if (body?.stream && response.body) {
-      // Forward streaming response
       res.setHeader('Content-Type', 'application/x-ndjson');
-      res.setHeader('Transfer-Encoding', 'chunked');
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      // Cancel the upstream read if the client disconnects mid-stream.
+      let clientGone = false;
+      res.on('close', () => { clientGone = true; reader.cancel().catch(() => {}); });
 
+      let received = 0;
       try {
-        while (true) {
+        while (!clientGone) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          res.write(chunk);
+          received += value.length;
+          if (received > MAX_RESPONSE_BYTES) {
+            throw new Error('Ollama response exceeded maximum allowed size');
+          }
+          res.write(decoder.decode(value, { stream: true }));
         }
-        res.end();
+        if (!clientGone) res.end();
       } catch (error) {
         console.error('Streaming error:', error);
-        reader.cancel();
+        reader.cancel().catch(() => {});
         if (!res.headersSent) {
           res.status(500).json({ error: 'Streaming error' });
+        } else if (!clientGone) {
+          res.end();
         }
       }
     } else {
-      // Non-streaming response
-      const data = await response.json();
+      // Non-streaming response (size-capped).
+      const text = await readCappedText(response);
+      const data = JSON.parse(text);
       console.log('Ollama proxy response received, has response:', !!data.response);
       res.json(data);
     }
   } catch (error) {
     console.error('Ollama proxy error:', error);
-    res.status(500).json({ error: 'Failed to connect to Ollama server: ' + error.message });
+    res.status(error.statusCode || 500).json({ error: 'Failed to connect to Ollama server: ' + error.message });
   }
 });
 
@@ -283,7 +258,7 @@ app.post('/api/openai/proxy', async (req, res) => {
     const requestBody = { model, messages, stream: Boolean(stream) };
     if (max_tokens) requestBody.max_tokens = max_tokens;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -293,56 +268,29 @@ app.post('/api/openai/proxy', async (req, res) => {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await readCappedText(response);
       console.error('OpenAI API error:', response.status, errorText);
       return res.status(response.status).json({ error: `OpenAI error: ${errorText}` });
     }
 
     if (stream && response.body) {
       // Normalize OpenAI SSE to NDJSON {"response":"token"} format
-      res.setHeader('Content-Type', 'application/x-ndjson');
-      res.setHeader('Transfer-Encoding', 'chunked');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith('data: ')) continue;
-            const data = trimmed.slice(6);
-            if (data === '[DONE]') continue;
-
-            try {
-              const json = JSON.parse(data);
-              const content = json.choices?.[0]?.delta?.content;
-              if (content) {
-                res.write(JSON.stringify({ response: content }) + '\n');
-              }
-            } catch (e) {
-              // ignore partial JSON
-            }
-          }
+      await pipeStream(response, res, (line) => {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) return null;
+        const data = trimmed.slice(6);
+        if (data === '[DONE]') return null;
+        try {
+          const json = JSON.parse(data);
+          const content = json.choices?.[0]?.delta?.content;
+          return content ? JSON.stringify({ response: content }) + '\n' : null;
+        } catch {
+          return null;
         }
-        res.end();
-      } catch (error) {
-        console.error('OpenAI streaming error:', error);
-        reader.cancel();
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Streaming error' });
-        }
-      }
+      });
     } else {
-      const data = await response.json();
+      const text = await readCappedText(response);
+      const data = JSON.parse(text);
       const content = data.choices?.[0]?.message?.content || '';
       res.json({ response: content });
     }
@@ -368,7 +316,7 @@ app.post('/api/anthropic/proxy', async (req, res) => {
     };
     if (system) requestBody.system = system;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -379,54 +327,30 @@ app.post('/api/anthropic/proxy', async (req, res) => {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
+      const errorText = await readCappedText(response);
       console.error('Anthropic API error:', response.status, errorText);
       return res.status(response.status).json({ error: `Anthropic error: ${errorText}` });
     }
 
     if (stream && response.body) {
       // Normalize Anthropic SSE to NDJSON {"response":"token"} format
-      res.setHeader('Content-Type', 'application/x-ndjson');
-      res.setHeader('Transfer-Encoding', 'chunked');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith('data: ')) continue;
-            const data = trimmed.slice(6);
-
-            try {
-              const json = JSON.parse(data);
-              if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
-                res.write(JSON.stringify({ response: json.delta.text }) + '\n');
-              }
-            } catch (e) {
-              // ignore partial JSON
-            }
+      await pipeStream(response, res, (line) => {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) return null;
+        const data = trimmed.slice(6);
+        try {
+          const json = JSON.parse(data);
+          if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
+            return JSON.stringify({ response: json.delta.text }) + '\n';
           }
+          return null;
+        } catch {
+          return null;
         }
-        res.end();
-      } catch (error) {
-        console.error('Anthropic streaming error:', error);
-        reader.cancel();
-        if (!res.headersSent) {
-          res.status(500).json({ error: 'Streaming error' });
-        }
-      }
+      });
     } else {
-      const data = await response.json();
+      const text = await readCappedText(response);
+      const data = JSON.parse(text);
       const content = data.content?.[0]?.text || '';
       res.json({ response: content });
     }
@@ -444,7 +368,7 @@ app.post('/api/openai/tts', async (req, res) => {
     if (!apiKey) return res.status(400).json({ error: 'API key is required' });
     if (!input) return res.status(400).json({ error: 'Input text is required' });
 
-    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -457,7 +381,7 @@ app.post('/api/openai/tts', async (req, res) => {
         speed: speed || 1.0,
         response_format: 'mp3'
       })
-    });
+    }, 60000);
 
     if (!response.ok) {
       const errorText = await response.text();

@@ -1,32 +1,4 @@
-// Ollama proxy validation - allows URLs for Ollama connections
-function isValidOllamaUrl(urlString) {
-  if (!urlString || typeof urlString !== 'string') {
-    return { valid: false, error: 'URL is required and must be a string' };
-  }
-
-  let parsed;
-  try {
-    parsed = new URL(urlString);
-  } catch {
-    return { valid: false, error: 'Invalid URL format' };
-  }
-
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    return { valid: false, error: 'Only HTTP and HTTPS URLs are allowed' };
-  }
-
-  const hostname = parsed.hostname.toLowerCase();
-
-  // Block cloud metadata endpoints
-  const blockedHosts = ['metadata.google.internal', 'metadata.goog'];
-  if (blockedHosts.includes(hostname)) {
-    return { valid: false, error: 'Metadata endpoints are not allowed' };
-  }
-
-  // Note: For Vercel deployments, users need a publicly accessible Ollama server
-  // Local/private IPs won't be reachable from Vercel's servers
-  return { valid: true };
-}
+import { validateUrl, safeFetch, readCappedText, MAX_RESPONSE_BYTES } from './_lib/urlSecurity.js';
 
 export const config = {
   api: {
@@ -53,52 +25,59 @@ export default async function handler(req, res) {
   try {
     const { targetUrl, method = 'GET', body } = req.body;
 
-    const validation = isValidOllamaUrl(targetUrl);
+    // allowPrivate: the target is intentionally the user's Ollama server;
+    // cloud-metadata and link-local ranges are still blocked.
+    const validation = await validateUrl(targetUrl, { allowPrivate: true });
     if (!validation.valid) {
       return res.status(400).json({ error: validation.error });
     }
 
-    const fetchOptions = {
+    const response = await safeFetch(targetUrl, {
+      allowPrivate: true,
       method,
-      headers: { 'Content-Type': 'application/json' }
-    };
+      headers: { 'Content-Type': 'application/json' },
+      body: body && method !== 'GET' ? JSON.stringify(body) : undefined,
+    });
 
-    if (body && method !== 'GET') {
-      fetchOptions.body = JSON.stringify(body);
+    if (!response.ok) {
+      const errorText = await readCappedText(response);
+      return res.status(response.status).json({ error: `Ollama error: ${errorText}` });
     }
-
-    const response = await fetch(targetUrl, fetchOptions);
 
     // Check if this is a streaming response
     if (body?.stream && response.body) {
-      // Forward streaming response
       res.setHeader('Content-Type', 'application/x-ndjson');
-      res.setHeader('Transfer-Encoding', 'chunked');
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let clientGone = false;
+      res.on('close', () => { clientGone = true; reader.cancel().catch(() => {}); });
 
+      let received = 0;
       try {
-        while (true) {
+        while (!clientGone) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          res.write(chunk);
+          received += value.length;
+          if (received > MAX_RESPONSE_BYTES) throw new Error('Response exceeded maximum allowed size');
+          res.write(decoder.decode(value, { stream: true }));
         }
-        res.end();
+        if (!clientGone) res.end();
       } catch (error) {
-        reader.cancel();
+        reader.cancel().catch(() => {});
         if (!res.headersSent) {
           res.status(500).json({ error: 'Streaming error' });
+        } else if (!clientGone) {
+          res.end();
         }
       }
     } else {
-      // Non-streaming response
-      const data = await response.json();
-      res.json(data);
+      // Non-streaming response (size-capped).
+      const text = await readCappedText(response);
+      res.json(JSON.parse(text));
     }
   } catch (error) {
     console.error('Ollama proxy error:', error);
-    res.status(500).json({ error: 'Failed to connect to Ollama server' });
+    res.status(error.statusCode || 500).json({ error: 'Failed to connect to Ollama server' });
   }
 }

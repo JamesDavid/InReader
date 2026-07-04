@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from './_lib/streamProxy.js';
+
 export const config = {
   api: {
     bodyParser: {
@@ -26,7 +28,7 @@ export default async function handler(req, res) {
     if (!apiKey) return res.status(400).json({ error: 'API key is required' });
     if (!input) return res.status(400).json({ error: 'Input text is required' });
 
-    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -39,7 +41,7 @@ export default async function handler(req, res) {
         speed: speed || 1.0,
         response_format: 'mp3'
       })
-    });
+    }, 60000);
 
     if (!response.ok) {
       const errorText = await response.text();
