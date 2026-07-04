@@ -270,10 +270,12 @@ async function processNewEntries(feedId: number, feedTitle: string, items: Parse
 
   // Add entries and get their IDs
   const entryIds = await Promise.all(newEntries.map(entry => addEntry(entry)));
-  
-  // Process each entry (fetch article and generate summary)
-  await Promise.all(entryIds.map(id => processEntry(id as number)));
-  
+
+  // Process each entry (fetch article and generate summary) with bounded
+  // concurrency — importing a large OPML/feed would otherwise launch a
+  // processEntry for every item at once.
+  await runWithConcurrency(entryIds, 4, id => processEntry(id as number));
+
   return entryIds;
 }
 

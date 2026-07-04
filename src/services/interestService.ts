@@ -25,17 +25,25 @@ export async function updateInterestProfile(entryId: number): Promise<void> {
   await db.entries.update(entryId, { interestProfileUpdated: true });
 
   const now = new Date();
-  for (const tag of entry.tags) {
-    const existing = await db.interestTags.where('tag').equals(tag).first();
-    if (existing) {
-      await db.interestTags.update(existing.id!, {
-        count: existing.count + 1,
-        lastSeen: now
-      });
-    } else {
-      await db.interestTags.add({ tag, count: 1, lastSeen: now });
+  // Upsert inside a single rw transaction. interestTags has a unique &tag index;
+  // without transactional isolation two concurrent calls (e.g. starring two
+  // articles quickly) could both see "no existing tag" and both add, throwing a
+  // ConstraintError and losing an increment. IndexedDB serializes rw
+  // transactions on the store, making the check-then-add/update atomic.
+  const tags = entry.tags;
+  await db.transaction('rw', db.interestTags, async () => {
+    for (const tag of tags) {
+      const existing = await db.interestTags.where('tag').equals(tag).first();
+      if (existing) {
+        await db.interestTags.update(existing.id!, {
+          count: existing.count + 1,
+          lastSeen: now
+        });
+      } else {
+        await db.interestTags.add({ tag, count: 1, lastSeen: now });
+      }
     }
-  }
+  });
 
   // Re-score all tagged entries against the updated profile
   await rescoreAllTaggedEntries();

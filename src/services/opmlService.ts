@@ -20,9 +20,12 @@ export async function importOpml(opmlContent: string): Promise<{ feeds: number; 
 
   const outlines = Array.from(doc.getElementsByTagName('outline'));
   const stats = { feeds: 0, folders: 0 };
-  const folderMap = new Map<string, number>();
+  // Key by the outline element itself, not its text. Two folders that happen to
+  // share a name (or a nested folder with the same name) would otherwise collide
+  // in the map and feeds would be mis-parented.
+  const folderMap = new Map<Element, number>();
 
-  // Process folders first
+  // Process folders first (an outline with no xmlUrl is treated as a folder).
   for (const outline of outlines) {
     if (!outline.getAttribute('xmlUrl') && outline.getAttribute('text')) {
       const folderName = outline.getAttribute('text') || 'Unnamed Folder';
@@ -30,7 +33,7 @@ export async function importOpml(opmlContent: string): Promise<{ feeds: number; 
         name: folderName,
         order: await db.folders.count()
       });
-      folderMap.set(folderName, folder as number);
+      folderMap.set(outline, folder as number);
       stats.folders++;
     }
   }
@@ -41,9 +44,8 @@ export async function importOpml(opmlContent: string): Promise<{ feeds: number; 
     if (xmlUrl) {
       try {
         const parentNode = outline.parentElement;
-        const folderName = parentNode?.getAttribute('text');
-        const folderId = folderName ? folderMap.get(folderName) : undefined;
-        
+        const folderId = parentNode ? folderMap.get(parentNode) : undefined;
+
         // Check if feed already exists
         const existingFeed = await db.feeds.where('url').equals(xmlUrl).first();
         if (!existingFeed) {
