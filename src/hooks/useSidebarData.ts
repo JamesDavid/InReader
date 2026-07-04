@@ -54,10 +54,11 @@ export function useSidebarData({ onRegisterRefreshFeeds }: UseSidebarDataOptions
     }
   }, []);
 
-  // Load feeds and folders on mount
+  // Load feeds and folders on mount only.
   useEffect(() => {
     loadData();
-  }, []); // Empty dependency array since this is only for initial load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleDeleteFeed = async (id: number) => {
     await deleteFeed(id);

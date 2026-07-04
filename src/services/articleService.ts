@@ -148,8 +148,8 @@ export async function processEntryForSummary(entryId: number): Promise<void> {
       console.error('Error processing entry for summary:', error);
       const errorInfo = {
         message: error instanceof Error ? error.message : 'Unknown error',
-        code: (error as any).code || 'UNKNOWN',
-        details: (error as any).details
+        code: (error as { code?: string; details?: string }).code || 'UNKNOWN',
+        details: (error as { code?: string; details?: string }).details
       };
       await db.entries.update(entryId, {
         requestProcessingStatus: 'failed',

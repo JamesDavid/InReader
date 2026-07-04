@@ -134,12 +134,12 @@ class TTSService {
     cleanText = cleanText.replace(/#\w+/g, '');
 
     // Remove email addresses
-    cleanText = cleanText.replace(/[\w\.-]+@[\w\.-]+\.\w+/g, '');
+    cleanText = cleanText.replace(/[\w.-]+@[\w.-]+\.\w+/g, '');
 
     // Remove markdown formatting
     cleanText = cleanText
       // Remove markdown links but keep text
-      .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
       // Remove headers
       .replace(/^#{1,6}\s+/gm, '')
       // Remove code blocks

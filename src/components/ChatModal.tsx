@@ -93,12 +93,16 @@ const ChatModal: React.FC<ChatModalProps> = ({
     scrollToBottom();
   }, [messages, isTyping, scrollToBottom]);
 
-  // Also scroll when streaming updates the last message
+  // Also scroll when streaming updates the last message. Depend on the last
+  // message's content (extracted so the linter can statically check it), not the
+  // whole messages array.
+  const lastMessageContent = messages[messages.length - 1]?.content;
   useEffect(() => {
     if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
       scrollToBottom();
     }
-  }, [messages[messages.length - 1]?.content, scrollToBottom]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastMessageContent, scrollToBottom]);
 
   const markdownClass = `prose prose-sm max-w-none 
     ${isDarkMode ? 'prose-invert prose-p:text-gray-300' : 'prose-p:text-gray-600'}
@@ -154,11 +158,13 @@ const ChatModal: React.FC<ChatModalProps> = ({
     }
   }, [isOpen, entryId, articleContent]);
 
-  // Initialize chat when article content is ready
+  // Initialize chat when article content is ready (not when initializeChat's
+  // identity changes each render).
   useEffect(() => {
     if (isOpen && fullArticleContent) {
       initializeChat();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, fullArticleContent]);
 
   // Focus input when modal opens

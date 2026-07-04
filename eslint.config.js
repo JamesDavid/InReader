@@ -23,6 +23,13 @@ export default tseslint.config(
         'warn',
         { allowConstantExport: true },
       ],
+      // Leading-underscore names are an intentional "unused" marker.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
+      ],
+      // Allow `while (true) { ... break }` stream-read loops.
+      'no-constant-condition': ['error', { checkLoops: false }],
     },
   },
 )

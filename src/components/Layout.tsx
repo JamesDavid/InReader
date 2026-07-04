@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Outlet, useOutletContext, useNavigate, useLocation } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import SearchModal from './SearchModal';
@@ -311,6 +311,3 @@ const Layout: React.FC = () => {
 };
 
 export default Layout;
-
-export { useOutletContext };
-export type { OutletContextType };

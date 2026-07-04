@@ -136,7 +136,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       isStarred: newStarred,
       starredDate,
     });
-  }, [entries]);
+  }, [entries, setEntries]);
 
   const getContentLength = (content: string): number => {
     // DOMParser parses without executing scripts or fetching resources
@@ -179,7 +179,9 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       // Clean up the timer reference
       delete readTimerRef.current[entry.id!];
     }, 2000); // 2 second dwell time
-  }, [props.onEntriesUpdate, isMobile]);
+    // Depends on props.onEntriesUpdate specifically, not the whole props object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.onEntriesUpdate, isMobile, setEntries]);
 
   // Clear any pending dwell timers on unmount to avoid setState-after-unmount.
   useEffect(() => {

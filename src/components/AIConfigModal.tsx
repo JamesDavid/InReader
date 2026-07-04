@@ -106,6 +106,8 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
         config.anthropicApiKey
       );
     }
+    // Run once on mount to load config and test the saved connection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

@@ -176,8 +176,8 @@ export const enqueueRequest = async <T>(
         if (queuedRequest.entryId && updateEntryStatus) {
           const errorInfo = {
             message: error instanceof Error ? error.message : 'Unknown error',
-            code: (error as any).code,
-            details: (error as any).details
+            code: (error as { code?: string; details?: string }).code,
+            details: (error as { code?: string; details?: string }).details
           };
           await updateRequestStatus(queuedRequest.entryId, 'failed', errorInfo);
         }

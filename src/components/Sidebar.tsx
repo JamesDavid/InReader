@@ -133,14 +133,17 @@ const Sidebar: React.FC<SidebarProps> = ({
     console.log('Search history updated:', searchHistory);
   }, [searchHistory]);
 
-  // Add this effect to update visible items when search history changes
+  // Expand the searches section when a new search arrives (only reacts to the
+  // count changing, deliberately not to isSearchesCollapsed).
   useEffect(() => {
     if (searchHistory.length > 0 && isSearchesCollapsed) {
       setIsSearchesCollapsed(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchHistory.length]);
 
-  // Create feed items
+  // Create feed items. handleDeleteFeed is intentionally omitted (it's a fresh
+  // reference each render; feedItems should only rebuild when feeds change).
   const feedItems = useMemo(() => {
     return feeds.map(feed => ({
       id: feed.id!,
@@ -148,6 +151,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       title: feed.title,
       onDelete: () => handleDeleteFeed(feed.id!)
     }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feeds]);
 
   // Add this helper function to calculate visible items (move it up before effects)
