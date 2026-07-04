@@ -136,11 +136,12 @@ export function useEntryScroll({
     });
   }, []);
 
-  // Auto-scroll when selected
+  // Auto-scroll when selected. Clear the timer on cleanup so a rapid selection
+  // change / unmount doesn't run checkVisibility against a detached ref.
   useEffect(() => {
-    if (isSelected) {
-      setTimeout(checkVisibility, 0);
-    }
+    if (!isSelected) return;
+    const timer = setTimeout(checkVisibility, 0);
+    return () => clearTimeout(timer);
   }, [isSelected, checkVisibility]);
 
   // Handle toggle expand event (spacebar)

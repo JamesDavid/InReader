@@ -18,6 +18,19 @@ interface UseInfiniteScrollReturn {
   isLoading: boolean;
 }
 
+// Find the nearest scrollable ancestor so the observer measures intersection
+// against the real scroll container, not the viewport (the sentinel lives inside
+// a nested overflow-y-auto container). Returns null to fall back to the viewport.
+function getScrollParent(el: HTMLElement | null): HTMLElement | null {
+  let node = el?.parentElement || null;
+  while (node) {
+    const overflowY = getComputedStyle(node).overflowY;
+    if (overflowY === 'auto' || overflowY === 'scroll') return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
 /**
  * Hook for infinite scroll functionality using Intersection Observer
  */
@@ -55,7 +68,7 @@ export function useInfiniteScroll({
     if (!sentinel || !enabled) return;
 
     const observer = new IntersectionObserver(handleIntersection, {
-      root: null, // Use viewport
+      root: getScrollParent(sentinel), // The actual scroll container (or viewport)
       rootMargin: `0px 0px ${threshold}px 0px`, // Trigger before reaching bottom
       threshold: 0,
     });

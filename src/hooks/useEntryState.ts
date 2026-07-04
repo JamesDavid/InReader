@@ -75,6 +75,18 @@ export function useEntryState({ entry }: UseEntryStateOptions): UseEntryStateRes
     }
   }, [currentEntry.id]);
 
+  // Listen for entryStarredChanged events so the star renders optimistically,
+  // without depending solely on the DB update subscription firing.
+  useAppEventListener('entryStarredChanged', (event) => {
+    if (event.detail.entryId === currentEntry.id) {
+      setCurrentEntry(prev => ({
+        ...prev,
+        isStarred: event.detail.isStarred,
+        starredDate: event.detail.starredDate,
+      }));
+    }
+  }, [currentEntry.id]);
+
   // Listen for entryRefreshStart events
   useAppEventListener('entryRefreshStart', (event) => {
     if (event.detail.entryId === currentEntry.id) {
