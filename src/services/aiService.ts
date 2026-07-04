@@ -189,12 +189,26 @@ export const getAvailableModels = async (provider: AIConfig['provider'], serverU
 
 export const loadAIConfig = (): AIConfig | null => {
   const saved = localStorage.getItem('aiConfig');
-  if (saved) return JSON.parse(saved);
+  if (saved) {
+    try {
+      return JSON.parse(saved);
+    } catch (e) {
+      // Corrupt/partial value would otherwise throw during app/modal init and
+      // lock the user out of the AI settings; treat it as no config instead.
+      console.error('Failed to parse saved aiConfig, ignoring:', e);
+    }
+  }
 
   // Backward compat: migrate old ollamaConfig
   const oldSaved = localStorage.getItem('ollamaConfig');
   if (oldSaved) {
-    const old = JSON.parse(oldSaved);
+    let old;
+    try {
+      old = JSON.parse(oldSaved);
+    } catch (e) {
+      console.error('Failed to parse legacy ollamaConfig, ignoring:', e);
+      return null;
+    }
     const migrated: AIConfig = {
       provider: 'ollama',
       serverUrl: old.serverUrl || '',
@@ -216,7 +230,6 @@ export const loadOllamaConfig = loadAIConfig;
 
 export const saveAIConfig = (config: AIConfig): void => {
   localStorage.setItem('aiConfig', JSON.stringify(config));
-  console.log('Saving AI config, provider:', config.provider, 'queue concurrency:', config.maxConcurrentRequests);
   initializeQueue(config.maxConcurrentRequests);
 };
 
@@ -341,27 +354,37 @@ export const generateSummary = async (
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let summary = '';
+        // Buffer a partial trailing line across chunk boundaries; without this a
+        // JSON line (or multi-byte char) split across two network chunks fails to
+        // parse and its tokens are silently dropped from the stored summary.
+        let buffer = '';
+
+        const flushLine = (line: string) => {
+          if (!line.trim()) return;
+          try {
+            const data = JSON.parse(line);
+            if (data.response) {
+              summary += data.response;
+              safeOnToken(data.response);
+            }
+          } catch (e) {
+            console.error('Error parsing streaming response line:', e);
+          }
+        };
 
         try {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
-            const chunk = decoder.decode(value);
-            try {
-              const lines = chunk.split('\n');
-              for (const line of lines) {
-                if (!line.trim()) continue;
-                const data = JSON.parse(line);
-                if (data.response) {
-                  summary += data.response;
-                  safeOnToken(data.response);
-                }
-              }
-            } catch (e) {
-              console.error('Error parsing streaming response:', e);
-            }
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) flushLine(line);
           }
+          // Decode any remaining bytes and flush the final buffered line.
+          buffer += decoder.decode();
+          if (buffer.trim()) flushLine(buffer);
         } catch (e) {
           reader.cancel().catch(() => {});
           throw e;
@@ -369,7 +392,6 @@ export const generateSummary = async (
         return summary;
       } else {
         const data = await response.json();
-        console.log('generateSummary: received non-streaming response, has response:', !!data.response, 'length:', data.response?.length);
         if (data.error) {
           console.error('AI returned error:', data.error);
           throw new Error(data.error);
