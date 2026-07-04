@@ -84,15 +84,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   pathRef.current = location.pathname;
 
   // Create search items from search history
-  const searchItems = useMemo(() => 
+  const searchItems = useMemo(() =>
     searchHistory.map(search => {
-      console.log('Raw search data:', {
-        query: search.query,
-        mostRecentResult: search.mostRecentResult,
-        type: search.mostRecentResult ? typeof search.mostRecentResult : 'undefined',
-        isDate: search.mostRecentResult instanceof Date
-      });
-      
       // Ensure we have a valid Date object or null
       let timestamp: Date | null = null;
       if (search.mostRecentResult) {
@@ -109,13 +102,6 @@ const Sidebar: React.FC<SidebarProps> = ({
         }
       }
 
-      console.log('Creating search item for:', search.query, {
-        mostRecentResult: search.mostRecentResult,
-        resultCount: search.resultCount,
-        timestamp,
-        isValidDate: timestamp instanceof Date
-      });
-
       return {
         id: search.id,
         path: `/search/${encodeURIComponent(search.query)}`,
@@ -127,11 +113,6 @@ const Sidebar: React.FC<SidebarProps> = ({
         }
       };
     }), [searchHistory, onClearSearchHistory]);
-
-  // Add this effect to log search history updates
-  useEffect(() => {
-    console.log('Search history updated:', searchHistory);
-  }, [searchHistory]);
 
   // Expand the searches section when a new search arrives (only reacts to the
   // count changing, deliberately not to isSearchesCollapsed).

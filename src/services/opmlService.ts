@@ -57,13 +57,7 @@ export async function exportOpml(): Promise<string> {
   try {
     // Get all feeds with explicit toArray() and error checking
     const feeds = await db.feeds.toArray();
-    console.log(`Found ${feeds.length} total feeds in database:`, 
-      feeds.map(f => ({ id: f.id, title: f.title, url: f.url })));
-    
-    const folders = await db.folders.toArray();
-    console.log(`Found ${folders.length} folders in database:`, 
-      folders.map(f => ({ id: f.id, name: f.name })));
-    
+
     if (feeds.length === 0) {
       console.warn('No feeds found in database for OPML export');
       return '<?xml version="1.0" encoding="UTF-8"?><opml version="2.0"><head><title>RSS Reader Feeds Export</title></head><body></body></opml>';
@@ -106,7 +100,6 @@ export async function exportOpml(): Promise<string> {
     
     // Verify the output contains all feeds
     const exportedUrls = output.match(/xmlUrl="([^"]+)"/g)?.length || 0;
-    console.log(`OPML export complete. Contains ${exportedUrls} feeds out of ${feeds.length} total feeds`);
     
     if (exportedUrls !== feeds.length) {
       console.error('Not all feeds were exported!', {

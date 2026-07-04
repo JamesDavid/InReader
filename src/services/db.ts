@@ -214,8 +214,7 @@ function getDatabase(): ReaderDatabase {
       console.warn('Database blocked - another instance needs to upgrade');
     });
 
-    dbInstance.on('versionchange', event => {
-      console.log('Database version changed:', event);
+    dbInstance.on('versionchange', () => {
       if (dbInstance) {
         dbInstance.close();
         dbInstance = null;
@@ -597,17 +596,10 @@ export async function saveSearch(query: string) {
 }
 
 export async function getSavedSearches() {
-  console.log('Getting saved searches from DB');
   const searches = await db.savedSearches.toArray();
-  console.log('Raw searches from DB:', searches);
   
   // Convert date strings to Date objects
   const hydratedSearches = searches.map(search => {
-    console.log('Hydrating search:', search.query, {
-      rawMostRecent: search.mostRecentResult,
-      type: typeof search.mostRecentResult
-    });
-    
     // Ensure we have valid Date objects
     const createdAt = new Date(search.createdAt);
     const lastUpdated = search.lastUpdated ? new Date(search.lastUpdated) : undefined;
@@ -633,12 +625,7 @@ export async function getSavedSearches() {
       lastUpdated,
       mostRecentResult
     };
-    
-    console.log('Hydrated search:', search.query, {
-      mostRecentResult: hydrated.mostRecentResult,
-      isDate: hydrated.mostRecentResult instanceof Date
-    });
-    
+
     return hydrated;
   });
 
@@ -705,34 +692,20 @@ export async function getChatHistory(entryId: number): Promise<ChatMessage[] | u
 }
 
 export async function getEntriesWithChats() {
-  console.log('Getting entries with chats...');
   const entries = await db.entries
     .filter(entry => {
       if (!entry.chatHistory || entry.chatHistory.length === 0) {
-        console.log('Entry has no chat history:', entry.id);
         return false;
       }
 
       // Only count entries that have at least one user message and one assistant message
       const hasUserMessage = entry.chatHistory.some(msg => msg.role === 'user');
       const hasAssistantMessage = entry.chatHistory.some(msg => msg.role === 'assistant' && msg.content.trim() !== '');
-      
-      console.log('Chat history for entry', entry.id, {
-        hasUserMessage,
-        hasAssistantMessage,
-        messageCount: entry.chatHistory.length,
-        messages: entry.chatHistory.map(msg => ({
-          role: msg.role,
-          contentLength: msg.content.length,
-          timestamp: msg.timestamp
-        }))
-      });
 
       return hasUserMessage && hasAssistantMessage;
     })
     .toArray();
 
-  console.log('Found entries with chats:', entries.length);
 
   // Add feed titles and convert to FeedEntryWithTitle
   const entriesWithTitles = await addFeedTitleToEntries(entries);
@@ -755,13 +728,6 @@ export async function getEntriesWithChats() {
     );
     return bLatest.getTime() - aLatest.getTime();
   });
-
-  console.log('Sorted entries:', sortedEntries.map(e => ({
-    id: e.id,
-    title: e.title,
-    lastChatDate: e.lastChatDate,
-    messageCount: e.chatHistory?.length
-  })));
 
   return sortedEntries;
 }

@@ -25,7 +25,6 @@ interface ArticleError extends Error {
 export async function fetchArticleContent(url: string, entryId?: number): Promise<ArticleContent> {
   return enqueueRequest(async () => {
     try {
-      console.log('Fetching article content for:', url);
       // First try to fetch the full article content
       const response = await fetch(`${API_URL}/fetch-article`, {
         method: 'POST',
@@ -89,7 +88,6 @@ export async function fetchArticleContent(url: string, entryId?: number): Promis
         throw error;
       }
 
-      console.log('Successfully fetched and converted article content, length:', cleanedMarkdown.length);
       return {
         content: cleanedMarkdown,
         isFullContent: true

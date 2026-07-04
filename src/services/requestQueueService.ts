@@ -38,29 +38,12 @@ export const initializeQueue = (concurrency: number = 2) => {
   if (queue) {
     // Only reinitialize if concurrency changed
     if (queue.concurrency === concurrency) {
-      console.log('Queue already initialized with same concurrency:', concurrency);
       return;
     }
-    console.log('Reinitializing queue with new concurrency:', concurrency);
     // Remove all listeners from old queue before creating new one
     queue.removeAllListeners();
-  } else {
-    console.log('Initializing new queue with concurrency:', concurrency);
   }
   queue = new PQueue({ concurrency });
-
-  // Set up queue event listeners
-  queue.on('active', () => {
-    console.log('Queue event - active. Queue size:', queue?.size);
-  });
-
-  queue.on('idle', () => {
-    console.log('Queue event - idle. Queue size:', queue?.size);
-  });
-
-  queue.on('error', () => {
-    console.log('Queue event - error. Queue size:', queue?.size);
-  });
 };
 
 // Helper function to create a minimal request object
@@ -86,7 +69,6 @@ export const enqueueRequest = async <T>(
   const { priority = 0, updateEntryStatus = true, type } = options;
 
   if (!queue) {
-    console.log('Queue not initialized, creating with default concurrency');
     initializeQueue();
   }
 
@@ -222,11 +204,9 @@ export const getQueueStats = () => {
 
 export const clearQueue = () => {
   if (queue) {
-    console.log('Clearing queue. Stats before clear:', getQueueStats());
     queue.clear();
     queuedRequests = [];
     processingRequests = [];
     failedRequests = [];
-    console.log('Queue cleared. New stats:', getQueueStats());
   }
 }; 

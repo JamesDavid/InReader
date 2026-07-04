@@ -90,7 +90,6 @@ async function processEntry(entryId: number) {
       entry.lastRequestAttempt &&
       Date.now() - new Date(entry.lastRequestAttempt).getTime() < STALL_TIMEOUT_MS
     ) {
-      console.log('Entry is already being processed:', entry.title);
       return;
     }
 
@@ -110,7 +109,6 @@ async function processEntry(entryId: number) {
 
     // If we already have full article content, use it
     if (entry.content_fullArticle) {
-      console.log('Using existing full article content for:', entry.title);
       articleContent = {
         content: entry.content_fullArticle,
         isFullContent: true
@@ -118,9 +116,7 @@ async function processEntry(entryId: number) {
     } else {
       // Otherwise try to fetch it
       try {
-        console.log('Fetching article content for:', entry.title);
         articleContent = await fetchArticleContent(entry.link, entryId);
-        console.log('Successfully fetched article content for:', entry.title);
 
         // Update entry with fetched content
         await db.entries.update(entryId, {
@@ -128,7 +124,6 @@ async function processEntry(entryId: number) {
         });
         notifyEntryUpdate(entryId);
       } catch (error) {
-        console.log('Failed to fetch full article, falling back to RSS content:', error);
         // Fall back to RSS content
         articleContent = {
           content: entry.content_rssAbstract,
@@ -139,7 +134,6 @@ async function processEntry(entryId: number) {
     }
 
     // Step 2: Generate AI summary if AI is configured
-    console.log('Loading AI config for:', entry.title);
     const config = loadAIConfig();
     const isConfigured = config && config.summaryModel && (
       (config.provider === 'ollama' && config.serverUrl) ||
@@ -147,7 +141,6 @@ async function processEntry(entryId: number) {
       (config.provider === 'anthropic' && config.anthropicApiKey)
     );
     if (!isConfigured) {
-      console.log('AI not configured, skipping summary generation for:', entry.title);
       await db.entries.update(entryId, {
         requestProcessingStatus: 'failed',
         lastRequestAttempt: new Date(),
@@ -171,7 +164,6 @@ async function processEntry(entryId: number) {
         : (config.summarySystemPrompt || '') + tagsInstruction
     };
 
-    console.log('Generating summary for:', entry.title, 'using model:', config.summaryModel);
     const summary = await generateSummary(
       articleContent.content,
       entry.link,
@@ -179,7 +171,6 @@ async function processEntry(entryId: number) {
       undefined,
       entryId
     );
-    console.log('Successfully generated summary for:', entry.title);
 
     // Parse tags from summary
     const { summaryText, tags } = parseSummaryAndTags(summary);
@@ -290,7 +281,6 @@ export const reprocessEntry = async (entryId: number) => {
   );
 
   if (isAlreadyQueued) {
-    console.log('Entry already in queue:', entryId);
     return; // Skip if already queued or processing
   }
 
@@ -353,7 +343,6 @@ export async function addNewFeed(url: string, folderId?: number) {
 
 // Add this new function for parallel feed refreshing
 export async function refreshFeeds(feeds: Feed[]) {
-  console.log('Starting parallel refresh for', feeds.length, 'feeds');
   
   // First, check for and requeue any stalled entries
   for (const feed of feeds) {
@@ -371,7 +360,6 @@ export async function refreshFeeds(feeds: Feed[]) {
         .toArray();
 
       if (stalledEntries.length > 0) {
-        console.log('Found stalled entries for feed:', feed.title, stalledEntries.length);
         // Requeue stalled entries with bounded concurrency.
         runWithConcurrency(stalledEntries, 4, entry => processEntry(entry.id!));
       }
@@ -383,7 +371,6 @@ export async function refreshFeeds(feeds: Feed[]) {
   // Refresh all feeds in parallel
   const refreshPromises = feeds.map(async (feed) => {
     try {
-      console.log('Starting refresh for feed:', feed.title);
       const parsedFeed = await parseFeed(feed.url);
       
       // First, add all new entries to the database without processing
@@ -427,7 +414,6 @@ export async function refreshFeeds(feeds: Feed[]) {
           .filter((entry): entry is FeedEntry => entry !== undefined)
           .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
 
-        console.log('Processing', sortedEntries.length, 'entries for feed:', feed.title);
         // Bounded concurrency so a large refresh doesn't fan out hundreds of
         // simultaneous processEntry calls contending on IndexedDB.
         runWithConcurrency(sortedEntries, 4, entry => processEntry(entry.id!));

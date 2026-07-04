@@ -61,7 +61,6 @@ class TTSService {
   private loadConfig() {
     try {
       const saved = localStorage.getItem('ttsConfig');
-      console.log('TTS: Loading config, saved value:', saved);
       if (saved) {
         this.ttsConfig = { ...DEFAULT_TTS_CONFIG, ...JSON.parse(saved) };
       }
@@ -77,17 +76,14 @@ class TTSService {
       }
 
       this.rate = this.ttsConfig.browserRate;
-      console.log('TTS: Final config:', this.ttsConfig);
     } catch (e) {
       console.error('Failed to load TTS config:', e);
     }
   }
 
   saveConfig(config: Partial<TTSConfig>) {
-    console.log('TTS: saveConfig called with:', config);
     this.ttsConfig = { ...this.ttsConfig, ...config };
     localStorage.setItem('ttsConfig', JSON.stringify(this.ttsConfig));
-    console.log('TTS: Config saved, new config:', this.ttsConfig);
 
     // Update internal state
     if (config.browserRate !== undefined) {
@@ -337,16 +333,13 @@ class TTSService {
     });
 
     // If not currently playing, start playing the newly added item
-    console.log('TTS: Added to queue, isPlaying:', this.isPlaying, 'queue length:', this.queue.length);
     if (!this.isPlaying) {
       this.currentArticleIndex = this.queue.length - 1;
-      console.log('TTS: Starting playback, calling playNext()');
       this.playNext();
     }
   }
 
   private async playNext() {
-    console.log('TTS: playNext() called, queue length:', this.queue.length, 'currentIndex:', this.currentArticleIndex);
     if (this.queue.length === 0) {
       this.isPlaying = false;
       this.isPaused = false;
@@ -369,29 +362,23 @@ class TTSService {
       return;
     }
 
-    console.log('TTS: playNext() calling playArticle for:', article.title);
     await this.playArticle(article);
   }
 
   private async playArticle(article: QueuedArticle) {
-    console.log('TTS: playArticle() called, provider:', this.ttsConfig.provider);
     this.isPlaying = true;
     this.isPaused = false;
     this.currentArticle = article;
     this.notifyListeners();
 
     if (this.ttsConfig.provider === 'openai') {
-      console.log('TTS: Using OpenAI provider');
       await this.playArticleWithOpenAI(article);
     } else {
-      console.log('TTS: Using browser provider');
       await this.playArticleWithBrowser(article);
     }
   }
 
   private async playArticleWithOpenAI(article: QueuedArticle) {
-    console.log('OpenAI TTS: Starting playback for article:', article.title);
-    console.log('OpenAI TTS: Current config:', this.ttsConfig);
 
     const aiConfig = loadAIConfig();
     const apiKey = aiConfig?.openaiApiKey;
@@ -413,7 +400,6 @@ class TTSService {
     }
 
     const fullText = parts.join('. ');
-    console.log('OpenAI TTS: Full text length:', fullText.length);
 
     if (fullText.length < 10) {
       console.error('OpenAI TTS: Text too short, falling back to browser');
@@ -424,7 +410,6 @@ class TTSService {
     // OpenAI TTS has a 4096 character limit per request
     // Split into chunks if needed
     const chunks = this.splitTextIntoChunks(fullText, 4000);
-    console.log('OpenAI TTS: Split into', chunks.length, 'chunks');
 
     if (chunks.length === 0) {
       console.error('OpenAI TTS: No chunks generated, falling back to browser');
@@ -485,7 +470,6 @@ class TTSService {
       const chunk = chunks[i];
 
       try {
-        console.log(`OpenAI TTS: Playing chunk ${i + 1}/${chunks.length} (${chunk.length} chars)`);
         const response = await fetch('/api/openai/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -505,7 +489,6 @@ class TTSService {
         }
 
         const audioBlob = await response.blob();
-        console.log(`OpenAI TTS: Received audio blob (${audioBlob.size} bytes, type: ${audioBlob.type})`);
         const audioUrl = URL.createObjectURL(audioBlob);
 
         await this.playAudioElement(audioUrl, i === chunks.length - 1, article);
@@ -569,13 +552,11 @@ class TTSService {
   }
 
   private async playAudioElement(url: string, isLastChunk: boolean, article: QueuedArticle): Promise<void> {
-    console.log('OpenAI TTS: Playing audio via Web Audio API, isLastChunk:', isLastChunk);
 
     const audioContext = this.getAudioContext();
 
     // Resume AudioContext if suspended (handles autoplay policy)
     if (audioContext.state === 'suspended') {
-      console.log('OpenAI TTS: Resuming suspended AudioContext');
       await audioContext.resume();
     }
 
@@ -586,7 +567,6 @@ class TTSService {
 
       // Decode the audio data
       const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-      console.log('OpenAI TTS: Audio decoded, duration:', audioBuffer.duration, 'seconds');
 
       // Create a buffer source and play
       const source = audioContext.createBufferSource();
@@ -598,7 +578,6 @@ class TTSService {
 
       return new Promise((resolve, _reject) => {
         source.onended = async () => {
-          console.log('OpenAI TTS: Audio ended, isLastChunk:', isLastChunk);
           this.currentAudioSource = null;
 
           if (isLastChunk) {
@@ -630,7 +609,6 @@ class TTSService {
         };
 
         source.start(0);
-        console.log('OpenAI TTS: Audio playback started');
       });
     } catch (error) {
       console.error('OpenAI TTS: Web Audio API playback failed:', error);

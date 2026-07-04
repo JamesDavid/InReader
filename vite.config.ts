@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   server: {
     // Proxy API requests to backend during development
@@ -13,19 +13,9 @@ export default defineConfig({
       }
     }
   },
-  optimizeDeps: {
-    include: ['gun'],
-    exclude: []
+  esbuild: {
+    // In production builds, tree-shake debug logging out of the bundle while
+    // keeping console.error / console.warn for real problems.
+    pure: mode === 'production' ? ['console.log', 'console.debug', 'console.info'] : [],
   },
-  resolve: {
-    alias: {
-      'gun': 'gun'
-    }
-  },
-  build: {
-    commonjsOptions: {
-      include: [/gun/, /node_modules/],
-      transformMixedEsModules: true
-    }
-  }
-})
+}))
