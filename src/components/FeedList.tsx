@@ -85,10 +85,13 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       result = result.filter(entry => !dismissedEntryIds.has(entry.id!));
     }
     if (showUnreadOnly) {
-      result = result.filter(entry => !entry.isRead);
+      // Keep the entry you're currently on visible even after it's marked read,
+      // so it isn't yanked out from under you while reading. It drops off once
+      // you move to another entry.
+      result = result.filter(entry => !entry.isRead || entry.id === selectedEntryId);
     }
     return result;
-  }, [entries, showUnreadOnly, dismissedEntryIds]);
+  }, [entries, showUnreadOnly, dismissedEntryIds, selectedEntryId]);
 
   // Keep refs in sync for use in event handlers
   displayItemsRef.current = displayItems;
