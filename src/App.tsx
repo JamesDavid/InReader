@@ -1,10 +1,17 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import FeedList from './components/FeedList';
 import SearchResults from './components/SearchResults';
 import ChatsView from './components/ChatsView';
+import { seedDefaultFeedsIfNeeded } from './services/defaultFeeds';
 
 function App() {
+  useEffect(() => {
+    // Seed starter feeds on a brand-new install (runs at most once per browser).
+    seedDefaultFeedsIfNeeded();
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

@@ -41,7 +41,12 @@ export function useFeedEntries({
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const isLoadingMoreRef = useRef(false);
+
+  // Re-run the DB load for the current view (no network re-fetch). Used when the
+  // feed set changes elsewhere (e.g. seeding a fresh install).
+  const reload = useCallback(() => setReloadNonce(n => n + 1), []);
 
   // Only "All Items" and a single feed are DB-paginated; the aggregate views
   // (folder/starred/listened/recommended) and prop-driven lists load in full.
@@ -168,8 +173,9 @@ export function useFeedEntries({
     loadEntries();
     // isDBPaginated is derived from these same inputs, so it is intentionally
     // not listed to keep the load semantics identical to the original effect.
+    // reloadNonce lets callers force a DB reload of the current view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [feedId, folderId, pathname, propEntries]);
+  }, [feedId, folderId, pathname, propEntries, reloadNonce]);
 
   // Pull-to-refresh re-fetches the current view.
   const handlePullToRefresh = useCallback(async () => {
@@ -216,5 +222,6 @@ export function useFeedEntries({
     sentinelRef,
     isLoadingMore,
     pullState,
+    reload,
   };
 }

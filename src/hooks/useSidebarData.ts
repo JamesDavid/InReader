@@ -14,7 +14,7 @@ import {
   type Folder,
 } from '../services/db';
 import { refreshFeeds } from '../services/feedParser';
-import { dispatchAppEvent } from '../utils/eventDispatcher';
+import { dispatchAppEvent, useAppEventListener } from '../utils/eventDispatcher';
 
 interface UseSidebarDataOptions {
   onRegisterRefreshFeeds?: (callback: () => void) => void;
@@ -59,6 +59,10 @@ export function useSidebarData({ onRegisterRefreshFeeds }: UseSidebarDataOptions
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Reload when the whole feed set changes elsewhere (refresh-all, seeding a new
+  // install), so newly added feeds show up without a manual refresh.
+  useAppEventListener('allFeedsRefreshed', loadData, [loadData]);
 
   const handleDeleteFeed = async (id: number) => {
     await deleteFeed(id);

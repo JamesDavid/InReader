@@ -62,6 +62,7 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     sentinelRef,
     isLoadingMore,
     pullState,
+    reload,
   } = useFeedEntries({
     propEntries: props.entries,
     feedId,
@@ -304,6 +305,10 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     }
   }, [feedId]);
 
+  // When the whole feed set changes (refresh-all, seeding a new install), reload
+  // the current view so newly added entries appear.
+  useAppEventListener('allFeedsRefreshed', reload, [reload]);
+
   // Load interest tag names for highlighting tag pills; refresh on star changes.
   const loadInterestTags = useCallback(async () => {
     const profile = await getInterestProfile();
@@ -342,7 +347,9 @@ const FeedList: React.FC<FeedListProps> = (props) => {
           </div>
         )}
         {displayItems.length === 0 ? (
-          <div className={`text-center mt-8 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+          // Fill the container and center, so the (short) empty state can't be
+          // scrolled/overscrolled on mobile (which left the header stranded).
+          <div className={`flex h-full min-h-full items-center justify-center px-4 text-center ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
             {entries.length === 0 ? 'No entries to display' : 'No unread entries'}
           </div>
         ) : (
