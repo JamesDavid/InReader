@@ -255,28 +255,38 @@ export async function addFeed(url: string, title: string, folderId?: number) {
 
 export async function addEntry(entry: Omit<FeedEntry, 'id'>) {
   try {
-    // Check if entry already exists
-    const existingEntry = await db.entries
-      .where('[feedId+link]')
-      .equals([entry.feedId, entry.link])
-      .first();
+    // Run the check-then-add inside a single rw transaction. IndexedDB serializes
+    // readwrite transactions on the entries store, so two concurrent addEntry
+    // calls for the same [feedId+link] can no longer both pass the existence
+    // check and insert a duplicate (e.g. from Promise.all over a feed batch).
+    const { entryId, isNew } = await db.transaction('rw', db.entries, async () => {
+      const existingEntry = await db.entries
+        .where('[feedId+link]')
+        .equals([entry.feedId, entry.link])
+        .first();
 
-    if (!existingEntry) {
-      const entryId = await db.entries.add({
+      if (existingEntry) {
+        return { entryId: existingEntry.id, isNew: false };
+      }
+
+      const newId = await db.entries.add({
         ...entry,
         isListened: false,
         requestProcessingStatus: entry.requestProcessingStatus || 'pending',
         lastRequestAttempt: entry.lastRequestAttempt || undefined
       });
-      
-      // Update search results when new entries are added
+      return { entryId: newId, isNew: true };
+    });
+
+    if (isNew) {
+      // Update search results when new entries are added (outside the txn since
+      // it touches other tables).
       updateSearchResultCounts().catch(error => {
         console.error('Error updating search results after adding entry:', error);
       });
-      
-      return entryId;
     }
-    return existingEntry.id;
+
+    return entryId;
   } catch (error) {
     console.error('Error adding entry:', error);
     if (error instanceof Dexie.DatabaseClosedError) {
@@ -341,11 +351,15 @@ export async function getFeedsByFolder(folderId?: number | null) {
 }
 
 export async function getUnreadEntries(feedId?: number) {
-  let query = db.entries.filter(entry => !entry.isRead);
-  if (feedId) {
-    query = query.filter(entry => entry.feedId === feedId);
+  // When scoped to a feed, use the feedId index instead of scanning the whole
+  // table (and use !== undefined so feedId 0 isn't skipped).
+  if (feedId !== undefined) {
+    const entries = await db.entries.where('feedId').equals(feedId).toArray();
+    return entries
+      .filter(entry => !entry.isRead)
+      .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
   }
-  return await query.reverse().sortBy('publishDate');
+  return await db.entries.filter(entry => !entry.isRead).reverse().sortBy('publishDate');
 }
 
 // Add feed title cache
@@ -477,12 +491,16 @@ export async function getListenedEntries() {
 }
 
 export async function getRecommendedEntries() {
+  // Use the interestScore index to fetch only scored entries, then drop read
+  // ones in memory, instead of scanning the entire entries table.
   const entries = await db.entries
-    .filter(entry => !entry.isRead && (entry.interestScore ?? 0) > 0)
+    .where('interestScore')
+    .above(0)
     .toArray();
+  const unread = entries.filter(entry => !entry.isRead);
   // Sort by interestScore descending
-  entries.sort((a, b) => (b.interestScore ?? 0) - (a.interestScore ?? 0));
-  return addFeedTitleToEntries(entries);
+  unread.sort((a, b) => (b.interestScore ?? 0) - (a.interestScore ?? 0));
+  return addFeedTitleToEntries(unread);
 }
 
 export async function addFolder(name: string, parentId?: number) {
@@ -676,6 +694,8 @@ export async function deleteFeed(feedId: number) {
       // and maintain their feedId for reference
     }
   });
+  // Invalidate the cached title so the "(Deleted)" suffix is reflected.
+  clearFeedTitleCache(feedId);
 }
 
 export async function saveChatHistory(entryId: number, messages: ChatMessage[]) {
@@ -834,10 +854,6 @@ export async function deleteFolder(folderId: number) {
   });
 }
 
-export async function markAsProcessed(entryId: number) {
-  return await db.entries.update(entryId, { hasBeenProcessed: true });
-}
-
 export async function updateRequestStatus(
   entryId: number, 
   status: 'pending' | 'success' | 'failed',
@@ -877,7 +893,9 @@ export async function updateFeedTitle(feedId: number, newTitle: string) {
     if (!feed) {
       throw new Error('Feed not found');
     }
-    return await db.feeds.update(feedId, { title: newTitle });
+    const result = await db.feeds.update(feedId, { title: newTitle });
+    clearFeedTitleCache(feedId);
+    return result;
   });
 }
 
@@ -893,9 +911,15 @@ export async function updateFolderName(folderId: number, newName: string) {
 
 export type { Feed, FeedEntry, FeedEntryWithTitle, Folder, SavedSearch, ChatMessage, InterestTag };
 
-// Add function to clear feed title cache when needed
-export function clearFeedTitleCache() {
-  feedTitleCache.clear();
+// Clear cached feed titles. Pass a feedId to invalidate just one (e.g. after a
+// rename or delete so the new title / "(Deleted)" suffix is reflected), or omit
+// to clear all.
+export function clearFeedTitleCache(feedId?: number) {
+  if (typeof feedId === 'number') {
+    feedTitleCache.delete(feedId);
+  } else {
+    feedTitleCache.clear();
+  }
 }
 
 export async function getUnreadCount(feedId: number): Promise<number> {
