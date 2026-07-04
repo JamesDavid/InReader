@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowPathIcon } from '@heroicons/react/24/outline';
 import { getUnreadCount, getMostRecentEntry } from '../../services/db';
+import { useAppEventListener } from '../../utils/eventDispatcher';
 
 interface SidebarFeedItemProps {
   id: number;
@@ -52,9 +53,9 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
   onUnreadCountChange
 }) => {
   const [unreadCount, setUnreadCount] = useState(0);
-  const [isRefreshingState, setIsRefreshing] = useState(false);
-  // Refreshing if the parent says so (prop) or a refresh event fired for us.
-  const isRefreshing = isRefreshingProp || isRefreshingState;
+  // Refresh state is driven by the parent (the refreshingFeeds set during a
+  // refresh-all); there is no per-item refresh event.
+  const isRefreshing = isRefreshingProp;
   const [mostRecentTimestamp, setMostRecentTimestamp] = useState<Date | null>(null);
 
   const updateUnreadCount = useCallback(async () => {
@@ -67,37 +68,10 @@ const SidebarFeedItem: React.FC<SidebarFeedItemProps> = ({
     setMostRecentTimestamp(mostRecent?.publishDate || null);
   }, [id, onUnreadCountChange]);
 
-  // Listen for feed refresh events
-  useEffect(() => {
-    const handleRefreshStart = (event: CustomEvent<{ feedId: number }>) => {
-      if (event.detail.feedId === id) {
-        setIsRefreshing(true);
-      }
-    };
-
-    const handleRefreshComplete = (event: CustomEvent<{ feedId: number, success: boolean }>) => {
-      if (event.detail.feedId === id) {
-        setIsRefreshing(false);
-        // Update unread count and timestamp after refresh
-        updateUnreadCount();
-      }
-    };
-
-    // Add event listeners
-    window.addEventListener('feedRefreshStart', handleRefreshStart as EventListener);
-    window.addEventListener('feedRefreshComplete', handleRefreshComplete as EventListener);
-    window.addEventListener('entryReadChanged', updateUnreadCount as EventListener);
-
-    // Initial unread count and timestamp
-    updateUnreadCount();
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('feedRefreshStart', handleRefreshStart as EventListener);
-      window.removeEventListener('feedRefreshComplete', handleRefreshComplete as EventListener);
-      window.removeEventListener('entryReadChanged', updateUnreadCount as EventListener);
-    };
-  }, [id, updateUnreadCount]);
+  // Initial unread count + timestamp, and refresh it whenever an entry's read
+  // state changes.
+  useEffect(() => { updateUnreadCount(); }, [updateUnreadCount]);
+  useAppEventListener('entryReadChanged', updateUnreadCount, [updateUnreadCount]);
 
   return (
     <div

@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { db, type ChatMessage } from '../services/db';
 import { loadAIConfig, chatFetch } from '../services/aiService';
+import { useAppEventListener } from '../utils/eventDispatcher';
 
 interface ChatModalProps {
   isOpen: boolean;
@@ -420,27 +421,17 @@ const ChatModal: React.FC<ChatModalProps> = ({
     }
   };
 
-  // Add scroll event listener
-  useEffect(() => {
-    const handleScroll = (event: CustomEvent<{ direction: 'up' | 'down' }>) => {
-      const articleContainer = document.querySelector('[data-article-content]');
-      console.log('Article container:', articleContainer, 'Collapsed:', isContentCollapsed);
-      if (!articleContainer || isContentCollapsed) return;
+  // Scroll the article pane in response to the keyboard-driven scroll event.
+  useAppEventListener('chatModalScroll', (event) => {
+    const articleContainer = document.querySelector('[data-article-content]');
+    if (!articleContainer || isContentCollapsed) return;
 
-      const scrollAmount = articleContainer.clientHeight * 0.33;
-      const currentScroll = articleContainer.scrollTop;
-      console.log('Scrolling article:', { direction: event.detail.direction, scrollAmount, currentScroll });
-      
-      articleContainer.scrollTo({
-        top: currentScroll + (event.detail.direction === 'down' ? scrollAmount : -scrollAmount),
-        behavior: 'smooth'
-      });
-    };
-
-    window.addEventListener('chatModalScroll', handleScroll as EventListener);
-    return () => {
-      window.removeEventListener('chatModalScroll', handleScroll as EventListener);
-    };
+    const scrollAmount = articleContainer.clientHeight * 0.33;
+    const currentScroll = articleContainer.scrollTop;
+    articleContainer.scrollTo({
+      top: currentScroll + (event.detail.direction === 'down' ? scrollAmount : -scrollAmount),
+      behavior: 'smooth'
+    });
   }, [isContentCollapsed]);
 
   const handleCopyResponse = (message: ChatMessage, index: number) => {

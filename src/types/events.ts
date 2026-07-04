@@ -54,7 +54,16 @@ export interface EntryMarkedAsReadDetail {
   feedId?: number;
 }
 
-// Map of event names to their detail types
+export interface FeedRefreshedDetail {
+  feedId?: number;
+}
+
+export interface EntryProcessingCompleteDetail {
+  entryId?: number;
+}
+
+// Map of event names to their detail types.
+// Events with no payload use `void` and are dispatched without a detail arg.
 export interface AppEventMap {
   entryReadChanged: EntryReadChangedDetail;
   entryUpdated: EntryUpdatedDetail;
@@ -67,6 +76,10 @@ export interface AppEventMap {
   feedEntryScroll: FeedEntryScrollDetail;
   chatModalScroll: ChatModalScrollDetail;
   entryMarkedAsRead: EntryMarkedAsReadDetail;
+  feedRefreshed: FeedRefreshedDetail;
+  entryProcessingComplete: EntryProcessingCompleteDetail;
+  queueChanged: void;
+  allFeedsRefreshed: void;
 }
 
 // Type helper for event detail extraction

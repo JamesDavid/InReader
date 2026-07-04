@@ -13,6 +13,7 @@ import { clearAllAISummaries, type InterestTag } from '../services/db';
 import { getQueueStats, clearQueue, initializeQueue } from '../services/requestQueueService';
 import { getInterestProfile, clearInterestProfile, rescoreAllTaggedEntries, deleteInterestTag } from '../services/interestService';
 import ttsService, { type OpenAIVoice, type TTSProvider } from '../services/ttsService';
+import { dispatchAppEvent } from '../utils/eventDispatcher';
 
 interface AIConfigModalProps {
   isOpen: boolean;
@@ -621,9 +622,7 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
                               type="button"
                               onClick={async () => {
                                 await rescoreAllTaggedEntries();
-                                window.dispatchEvent(new CustomEvent('showToast', {
-                                  detail: { message: 'Re-scored all entries', type: 'success' }
-                                }));
+                                dispatchAppEvent('showToast', { message: 'Re-scored all entries', type: 'success' });
                               }}
                               className={`text-sm px-3 py-1.5 rounded ${
                                 isDarkMode

@@ -1,5 +1,6 @@
 import PQueue from 'p-queue';
 import { db, updateRequestStatus } from './db';
+import { dispatchAppEvent } from '../utils/eventDispatcher';
 
 let queue: PQueue | null = null;
 
@@ -141,7 +142,7 @@ export const enqueueRequest = async <T>(
   const queuedCopy = createMinimalRequest(queuedRequest);
   queuedRequests.push(queuedCopy);
 
-  window.dispatchEvent(new CustomEvent('queueChanged'));
+  dispatchAppEvent('queueChanged');
 
   try {
     const result = await queue!.add(async () => {
@@ -154,7 +155,7 @@ export const enqueueRequest = async <T>(
         });
         processingRequests.push(processingRequest);
         queuedRequests.splice(requestIndex, 1);
-        window.dispatchEvent(new CustomEvent('queueChanged'));
+        dispatchAppEvent('queueChanged');
       }
 
       try {
@@ -166,11 +167,9 @@ export const enqueueRequest = async <T>(
         processingRequests = processingRequests.filter(r => r.id !== id);
 
         if (updateEntryStatus) {
-          window.dispatchEvent(new CustomEvent('entryProcessingComplete', {
-            detail: { entryId: queuedRequest.entryId }
-          }));
+          dispatchAppEvent('entryProcessingComplete', { entryId: queuedRequest.entryId });
         }
-        window.dispatchEvent(new CustomEvent('queueChanged'));
+        dispatchAppEvent('queueChanged');
 
         return response as T;
       } catch (error) {
@@ -191,7 +190,7 @@ export const enqueueRequest = async <T>(
         failedRequests.push(failedRequest);
         processingRequests = processingRequests.filter(r => r.id !== id);
 
-        window.dispatchEvent(new CustomEvent('queueChanged'));
+        dispatchAppEvent('queueChanged');
         throw error;
       }
     }, { priority });

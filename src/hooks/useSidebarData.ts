@@ -14,6 +14,7 @@ import {
   type Folder,
 } from '../services/db';
 import { refreshFeeds } from '../services/feedParser';
+import { dispatchAppEvent } from '../utils/eventDispatcher';
 
 interface UseSidebarDataOptions {
   onRegisterRefreshFeeds?: (callback: () => void) => void;
@@ -83,7 +84,7 @@ export function useSidebarData({ onRegisterRefreshFeeds }: UseSidebarDataOptions
       await updateSearchResultCounts();
 
       // Notify components that all feeds have been refreshed
-      window.dispatchEvent(new CustomEvent('allFeedsRefreshed'));
+      dispatchAppEvent('allFeedsRefreshed');
     } catch (error) {
       console.error('Error refreshing all feeds:', error);
     } finally {

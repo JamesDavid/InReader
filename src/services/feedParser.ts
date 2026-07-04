@@ -3,6 +3,7 @@ import { getQueueStats } from './requestQueueService';
 import { fetchArticleContent } from './articleService';
 import { generateSummary, loadAIConfig } from './aiService';
 import { parseSummaryAndTags, scoreEntry } from './interestService';
+import { dispatchAppEvent } from '../utils/eventDispatcher';
 import TurndownService from 'turndown';
 
 // Use relative URL so it works through nginx proxy in production
@@ -413,9 +414,7 @@ export async function refreshFeeds(feeds: Feed[]) {
 
       // Notify that this feed has been refreshed (new entries are in DB)
       // This lets the UI show new entries immediately before processing starts
-      window.dispatchEvent(new CustomEvent('feedRefreshed', {
-        detail: { feedId: feed.id }
-      }));
+      dispatchAppEvent('feedRefreshed', { feedId: feed.id });
 
       // Process entries in background - each update flows to UI via notifyEntryUpdate
       if (newEntryIds.length > 0) {

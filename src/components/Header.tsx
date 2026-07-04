@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useAppEventListener } from '../utils/eventDispatcher';
 import AIConfigModal from './AIConfigModal';
 import KeyboardShortcutsModal from './KeyboardShortcutsModal';
 import TTSQueueStatus from './TTSQueueStatus';
@@ -33,32 +34,18 @@ const Header: React.FC<HeaderProps> = ({
   const [isOllamaModalOpen, setIsOllamaModalOpen] = useState(false);
   const [queueStats, setQueueStats] = useState({ size: 0, pending: 0 });
 
-  // Add queue stats update effect
-  useEffect(() => {
-    const updateStats = () => {
-      const stats = getQueueStats();
-      setQueueStats({
-        size: stats.size + stats.pending,
-        pending: stats.pending
-      });
-    };
-
-    // Initial update
-    updateStats();
-
-    // Update when queue changes
-    const handleQueueChange = () => {
-      updateStats();
-    };
-
-    window.addEventListener('queueChanged', handleQueueChange);
-    window.addEventListener('entryProcessingComplete', handleQueueChange);
-
-    return () => {
-      window.removeEventListener('queueChanged', handleQueueChange);
-      window.removeEventListener('entryProcessingComplete', handleQueueChange);
-    };
+  const updateStats = useCallback(() => {
+    const stats = getQueueStats();
+    setQueueStats({
+      size: stats.size + stats.pending,
+      pending: stats.pending
+    });
   }, []);
+
+  // Initial update, then refresh whenever the queue changes.
+  useEffect(() => { updateStats(); }, [updateStats]);
+  useAppEventListener('queueChanged', updateStats, [updateStats]);
+  useAppEventListener('entryProcessingComplete', updateStats, [updateStats]);
 
   return (
     <>

@@ -6,7 +6,7 @@ import FeedListEntry from './FeedListEntry';
 import { useFeedEntries } from '../hooks/useFeedEntries';
 import { getInterestProfile } from '../services/interestService';
 import { useMobileDetection } from '../hooks/useMobileDetection';
-import { dispatchAppEvent } from '../utils/eventDispatcher';
+import { dispatchAppEvent, useAppEventListener } from '../utils/eventDispatcher';
 
 interface ContextType {
   isFocused: boolean;
@@ -104,21 +104,13 @@ const FeedList: React.FC<FeedListProps> = (props) => {
 
   const handleMarkAsRead = useCallback(async (entryId: number, isRead?: boolean) => {
     // Dispatch event first for immediate UI update
-    window.dispatchEvent(new CustomEvent('entryReadChanged', {
-      detail: { 
-        entryId,
-        isRead: isRead ?? true
-      }
-    }));
+    dispatchAppEvent('entryReadChanged', { entryId, isRead: isRead ?? true });
 
     // Then update database
     await markAsRead(entryId, isRead);
 
     // Dispatch event for sidebar update
-    const event = new CustomEvent('entryMarkedAsRead', {
-      detail: { feedId: feedId ? parseInt(feedId) : null }
-    });
-    window.dispatchEvent(event);
+    dispatchAppEvent('entryMarkedAsRead', { feedId: feedId ? parseInt(feedId) : undefined });
   }, [feedId]);
 
   const handleToggleStar = useCallback(async (entryId: number) => {
@@ -197,99 +189,55 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     };
   }, []);
 
-  // Replace the database hook effect with this updated version
-  useEffect(() => {
-    const handleStarredChange = (event: CustomEvent<{
-      entryId: number;
-      isStarred: boolean;
-      starredDate: Date | undefined;
-    }>) => {
-      // Update the entry in the local state immediately
-      setEntries(prevEntries =>
-        prevEntries.map(entry =>
-          entry.id === event.detail.entryId
-            ? {
-                ...entry,
-                isStarred: event.detail.isStarred,
-                starredDate: event.detail.starredDate
-              }
-            : entry
-        )
-      );
-    };
-
-    // Add event listener for star changes
-    window.addEventListener('entryStarredChanged', handleStarredChange as EventListener);
-
-    return () => {
-      window.removeEventListener('entryStarredChanged', handleStarredChange as EventListener);
-    };
+  // Reflect star changes into local state immediately.
+  useAppEventListener('entryStarredChanged', (event) => {
+    setEntries(prevEntries =>
+      prevEntries.map(entry =>
+        entry.id === event.detail.entryId
+          ? {
+              ...entry,
+              isStarred: event.detail.isStarred,
+              starredDate: event.detail.starredDate
+            }
+          : entry
+      )
+    );
   }, []);
 
-
-  // Add this effect to handle read state changes
-  useEffect(() => {
-    const handleReadChange = (event: CustomEvent<{
-      entryId: number;
-      isRead: boolean;
-    }>) => {
-      setEntries(prevEntries =>
-        prevEntries.map(entry =>
-          entry.id === event.detail.entryId
-            ? { ...entry, isRead: event.detail.isRead }
-            : entry
-        )
-      );
-    };
-
-    window.addEventListener('entryReadChanged', handleReadChange as EventListener);
-    return () => {
-      window.removeEventListener('entryReadChanged', handleReadChange as EventListener);
-    };
+  // Reflect read-state changes into local state immediately.
+  useAppEventListener('entryReadChanged', (event) => {
+    setEntries(prevEntries =>
+      prevEntries.map(entry =>
+        entry.id === event.detail.entryId
+          ? { ...entry, isRead: event.detail.isRead }
+          : entry
+      )
+    );
   }, []);
 
   // Handle mobile swipe dismiss: remove entry from rendered list and advance selection
-  useEffect(() => {
-    const handleDismiss = (event: CustomEvent<{ entryId: number; index: number; expandNext?: boolean }>) => {
-      const { entryId, expandNext } = event.detail;
+  useAppEventListener('mobileSwipeDismiss', (event) => {
+    const { entryId } = event.detail;
 
-      // Build the post-dismiss list to determine next selection
-      const currentItems = displayItemsRef.current;
-      const currentIdx = currentItems.findIndex(e => e.id === entryId);
-      const remainingItems = currentItems.filter(e => e.id !== entryId);
+    // Build the post-dismiss list to determine next selection
+    const currentItems = displayItemsRef.current;
+    const currentIdx = currentItems.findIndex(e => e.id === entryId);
+    const remainingItems = currentItems.filter(e => e.id !== entryId);
 
-      // Pick the entry that will occupy the same position, or the new last entry
-      const nextIdx = Math.min(currentIdx, remainingItems.length - 1);
-      const nextEntry = nextIdx >= 0 ? remainingItems[nextIdx] : null;
+    // Pick the entry that will occupy the same position, or the new last entry
+    const nextIdx = Math.min(currentIdx, remainingItems.length - 1);
+    const nextEntry = nextIdx >= 0 ? remainingItems[nextIdx] : null;
 
-      setDismissedEntryIds(prev => {
-        const next = new Set(prev);
-        next.add(entryId);
-        return next;
-      });
+    setDismissedEntryIds(prev => {
+      const next = new Set(prev);
+      next.add(entryId);
+      return next;
+    });
 
-      if (nextEntry?.id) {
-        onSelectedIndexChange(nextIdx);
-        onSelectedEntryIdChange(nextEntry.id!);
-
-        if (expandNext) {
-          setExpandedEntries(prev => ({ ...prev, [nextEntry.id!]: true }));
-
-          // Scroll the next entry to the top after the DOM updates
-          setTimeout(() => {
-            const entryElement = listRef.current?.querySelector(`[data-entry-id="${nextEntry.id}"]`);
-            if (entryElement) {
-              entryElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-          }, 100);
-        }
-      }
-    };
-
-    window.addEventListener('mobileSwipeDismiss', handleDismiss as EventListener);
-    return () => {
-      window.removeEventListener('mobileSwipeDismiss', handleDismiss as EventListener);
-    };
+    if (nextEntry?.id) {
+      onSelectedIndexChange(nextIdx);
+      onSelectedEntryIdChange(nextEntry.id!);
+    }
   }, [onSelectedIndexChange, onSelectedEntryIdChange]);
 
   // On mobile, mark previous entry as read when selecting a new one
@@ -321,63 +269,23 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     }
   }, [displayItems, onSelectedIndexChange]);
 
-  // Add this effect to handle feed refreshes
-  useEffect(() => {
-    const handleFeedRefresh = async (event: CustomEvent<{ feedId: number }>) => {
-      // Only reload if we're viewing the refreshed feed
-      const currentFeedId = feedId ? parseInt(feedId) : null;
-      if (currentFeedId === event.detail.feedId) {
-        const loadedEntries = (await getFeedEntries(event.detail.feedId)).entries;
-        setEntries(loadedEntries);
-      }
-    };
-
-    window.addEventListener('feedRefreshed', handleFeedRefresh as unknown as EventListener);
-    return () => {
-      window.removeEventListener('feedRefreshed', handleFeedRefresh as unknown as EventListener);
-    };
+  // When a feed we're viewing gets refreshed, reload its entries.
+  useAppEventListener('feedRefreshed', async (event) => {
+    const refreshedId = event.detail.feedId;
+    const currentFeedId = feedId ? parseInt(feedId) : null;
+    if (refreshedId != null && currentFeedId === refreshedId) {
+      const loadedEntries = (await getFeedEntries(refreshedId)).entries;
+      setEntries(loadedEntries);
+    }
   }, [feedId]);
 
-  // Add this effect to handle entry reprocessing
-  useEffect(() => {
-    const handleEntryReprocess = async (_event: CustomEvent<{ entryId: number }>) => {
-      // Reload the entries to get the updated content
-      const loadedEntries = props.entries
-        ? props.entries
-        : feedId
-          ? (await getFeedEntries(parseInt(feedId))).entries
-          : location.pathname === '/starred'
-            ? await getStarredEntries()
-            : location.pathname === '/listened'
-              ? await getListenedEntries()
-              : location.pathname === '/recommended'
-                ? await getRecommendedEntries()
-                : (await getAllEntries()).entries;
-      setEntries(loadedEntries);
-    };
-
-    window.addEventListener('entryReprocessed', handleEntryReprocess as unknown as EventListener);
-    return () => {
-      window.removeEventListener('entryReprocessed', handleEntryReprocess as unknown as EventListener);
-    };
-  }, [feedId, location.pathname, props.entries]);
-
-  // Load interest tag names for highlighting tag pills
-  useEffect(() => {
-    const load = async () => {
-      const profile = await getInterestProfile();
-      setInterestTagNames(new Set(profile.map(t => t.tag)));
-    };
-    load();
-
-    const handleProfileChange = () => { load(); };
-    window.addEventListener('entryStarredChanged', handleProfileChange);
-    window.addEventListener('entryReprocessed', handleProfileChange);
-    return () => {
-      window.removeEventListener('entryStarredChanged', handleProfileChange);
-      window.removeEventListener('entryReprocessed', handleProfileChange);
-    };
+  // Load interest tag names for highlighting tag pills; refresh on star changes.
+  const loadInterestTags = useCallback(async () => {
+    const profile = await getInterestProfile();
+    setInterestTagNames(new Set(profile.map(t => t.tag)));
   }, []);
+  useEffect(() => { loadInterestTags(); }, [loadInterestTags]);
+  useAppEventListener('entryStarredChanged', loadInterestTags, [loadInterestTags]);
 
   return (
     <>

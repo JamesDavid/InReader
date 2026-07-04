@@ -10,7 +10,7 @@ import { type AppEventMap, type EventDetail } from '../types/events';
  */
 export function dispatchAppEvent<K extends keyof AppEventMap>(
   name: K,
-  detail: EventDetail<K>
+  detail?: EventDetail<K>
 ): void {
   window.dispatchEvent(new CustomEvent(name, { detail }));
 }
