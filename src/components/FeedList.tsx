@@ -77,6 +77,8 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const displayItemsRef = useRef<FeedEntryWithTitle[]>([]);
   const selectedEntryIdRef = useRef<number | null>(selectedEntryId);
   const selectedIndexRef = useRef<number>(selectedIndex);
+  const entriesRef = useRef<FeedEntryWithTitle[]>(entries);
+  entriesRef.current = entries;
 
   // Filter entries based on showUnreadOnly and dismissed entries
   const displayItems = useMemo(() => {
@@ -258,6 +260,24 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       }
     }
   }, [selectedEntryId, isMobile, entries, handleMarkAsRead]);
+
+  // On desktop, mark the SELECTED article read after dwelling on it for 2s. This
+  // makes keyboard (j/k) reading mark entries read — the mouse-hover dwell only
+  // fires when the cursor is over the entry. Moving to another entry before the
+  // timer elapses cancels it. entriesRef is read at fire time so the timer isn't
+  // re-armed on every unrelated entries update.
+  useEffect(() => {
+    if (isMobile || selectedEntryId == null) return;
+    const entry = entriesRef.current.find(e => e.id === selectedEntryId);
+    if (!entry || entry.isRead) return;
+    const timer = setTimeout(() => {
+      const current = entriesRef.current.find(e => e.id === selectedEntryId);
+      if (current && !current.isRead) {
+        handleMarkAsRead(selectedEntryId);
+      }
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [selectedEntryId, isMobile, handleMarkAsRead]);
 
   // Clear dismissed entries when route changes (navigating to different feed/view)
   useEffect(() => {
