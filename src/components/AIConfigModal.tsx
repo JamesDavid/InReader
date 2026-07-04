@@ -301,7 +301,7 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
 
   const labelClass = `block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`;
 
-  const tabClass = `w-full py-2.5 text-sm font-medium leading-5 rounded-lg
+  const tabClass = `flex-1 min-w-[6rem] py-2.5 px-2 text-sm font-medium leading-5 rounded-lg whitespace-nowrap
     focus:outline-none focus:ring-2 ring-offset-2 ring-offset-reader-blue ring-white ring-opacity-60
     ${isDarkMode
       ? 'text-gray-300 hover:bg-gray-700'
@@ -314,9 +314,11 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black opacity-30" onClick={onClose} />
-      <div className={`relative z-50 rounded-lg p-6 w-full max-w-2xl border-2 shadow-xl overflow-y-auto max-h-[90vh]
+      {/* Fit the dynamic viewport (dvh accounts for the mobile URL bar) minus the
+          outer padding, so the whole box stays on-screen and scrolls internally. */}
+      <div className={`relative z-50 rounded-lg p-6 w-full max-w-2xl border-2 shadow-xl overflow-y-auto max-h-[calc(100dvh-2rem)]
         ${isDarkMode
           ? 'bg-gray-800 border-gray-600'
           : 'bg-white border-gray-200'}`}>
@@ -468,7 +470,8 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
           </div>
 
           <Tab.Group>
-            <Tab.List className="flex space-x-1 rounded-xl bg-gray-900/20 p-1">
+            <Tab.List className={`sticky top-0 z-10 flex flex-wrap gap-1 rounded-xl p-1 ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
+              {/* Summarizer and Chat need a live connection to pick models. */}
               {isConnected && (
                 <>
                   <Tab className={({ selected }) => selected ? selectedTabClass : tabClass}>
@@ -477,11 +480,13 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
                   <Tab className={({ selected }) => selected ? selectedTabClass : tabClass}>
                     Chat
                   </Tab>
-                  <Tab className={({ selected }) => selected ? selectedTabClass : tabClass}>
-                    Recommendations
-                  </Tab>
                 </>
               )}
+              {/* Recommendations (local interest profile), TTS and Queue don't
+                  require an AI connection, so they're always available. */}
+              <Tab className={({ selected }) => selected ? selectedTabClass : tabClass}>
+                Recommendations
+              </Tab>
               <Tab className={({ selected }) => selected ? selectedTabClass : tabClass}>
                 Text-to-Speech
               </Tab>
@@ -566,9 +571,11 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
                       </div>
                     </div>
                   </Tab.Panel>
+                </>
+              )}
 
-                  {/* Recommendations — Interest Profile */}
-                  <Tab.Panel>
+              {/* Recommendations — Interest Profile (local data; no AI connection needed) */}
+              <Tab.Panel>
                     <div className="space-y-4">
                       <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                         Tags are extracted from AI summaries. Starring or listening to an entry adds its tags here. Articles matching these tags appear in the Recommended view.
@@ -661,9 +668,7 @@ const AIConfigModal: React.FC<AIConfigModalProps> = ({ isOpen, onClose, isDarkMo
                         )}
                       </div>
                     </div>
-                  </Tab.Panel>
-                </>
-              )}
+              </Tab.Panel>
 
               {/* Text-to-Speech Configuration - Always visible */}
               <Tab.Panel>
