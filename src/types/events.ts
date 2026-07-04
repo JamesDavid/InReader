@@ -62,6 +62,12 @@ export interface EntryProcessingCompleteDetail {
   entryId?: number;
 }
 
+// Fired by the data layer after an entry row is written, so views showing that
+// entry can re-read it. (Replaces the old db.ts subscribeToEntryUpdates channel.)
+export interface EntryDbUpdatedDetail {
+  entryId: number;
+}
+
 // Map of event names to their detail types.
 // Events with no payload use `void` and are dispatched without a detail arg.
 export interface AppEventMap {
@@ -80,6 +86,7 @@ export interface AppEventMap {
   entryProcessingComplete: EntryProcessingCompleteDetail;
   queueChanged: void;
   allFeedsRefreshed: void;
+  entryDbUpdated: EntryDbUpdatedDetail;
 }
 
 // Type helper for event detail extraction

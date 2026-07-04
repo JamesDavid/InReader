@@ -1,4 +1,5 @@
 import Dexie, { Table } from 'dexie';
+import { dispatchAppEvent } from '../utils/eventDispatcher';
 
 interface Feed {
   id?: number;
@@ -197,17 +198,10 @@ class ReaderDatabase extends Dexie {
 // Create a singleton instance
 let dbInstance: ReaderDatabase | null = null;
 
-// Event system for entry updates
-type EntryUpdateListener = (entryId: number) => void;
-const entryUpdateListeners = new Set<EntryUpdateListener>();
-
-export function subscribeToEntryUpdates(listener: EntryUpdateListener) {
-  entryUpdateListeners.add(listener);
-  return () => entryUpdateListeners.delete(listener);
-}
-
+// Notify views that an entry row changed, so they can re-read it. Goes through
+// the app's single typed event dispatcher (was a bespoke listener Set).
 export function notifyEntryUpdate(entryId: number) {
-  entryUpdateListeners.forEach(listener => listener(entryId));
+  dispatchAppEvent('entryDbUpdated', { entryId });
 }
 
 // Function to get or create the database instance

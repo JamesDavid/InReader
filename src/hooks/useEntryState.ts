@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { type FeedEntryWithTitle, db, getFeedTitle, subscribeToEntryUpdates } from '../services/db';
+import { type FeedEntryWithTitle, db, getFeedTitle } from '../services/db';
 import { useAppEventListener } from '../utils/eventDispatcher';
 
 interface UseEntryStateOptions {
@@ -41,24 +41,18 @@ export function useEntryState({ entry }: UseEntryStateOptions): UseEntryStateRes
     }
   }, [entry.feedId]);
 
-  // Subscribe to database updates for this entry
-  useEffect(() => {
-    if (!entry.id) return;
-
-    const unsubscribe = subscribeToEntryUpdates(async (updatedEntryId) => {
-      if (updatedEntryId === entry.id) {
-        const updated = await db.entries.get(entry.id);
-        if (updated) {
-          const feed = await db.feeds.get(updated.feedId!);
-          setCurrentEntry({
-            ...updated,
-            feedTitle: feed?.title || 'Unknown Feed'
-          });
-        }
+  // Re-read this entry from the DB when the data layer signals it changed.
+  useAppEventListener('entryDbUpdated', async (event) => {
+    if (event.detail.entryId === entry.id) {
+      const updated = await db.entries.get(entry.id);
+      if (updated) {
+        const feed = await db.feeds.get(updated.feedId!);
+        setCurrentEntry({
+          ...updated,
+          feedTitle: feed?.title || 'Unknown Feed'
+        });
       }
-    });
-
-    return unsubscribe;
+    }
   }, [entry.id]);
 
   // Listen for entryReadChanged events
