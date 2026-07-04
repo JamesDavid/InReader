@@ -67,6 +67,16 @@ interface GunFeed {
   name: string;
 }
 
+// Module-level constant so its identity is stable across renders; a fresh array
+// literal each render was defeating the visibleItems useMemo below.
+const MAIN_ITEMS: VisibleItem[] = [
+  { path: '/', title: 'All Items' },
+  { path: '/recommended', title: 'Recommended' },
+  { path: '/starred', title: 'Starred' },
+  { path: '/listened', title: 'Listened' },
+  { path: '/chats', title: 'Chats' }
+];
+
 const Sidebar: React.FC<SidebarProps> = ({ 
   className = '', 
   isFocused, 
@@ -166,20 +176,12 @@ const Sidebar: React.FC<SidebarProps> = ({
     }));
   }, [feeds]);
 
-  const mainItems = [
-    { path: '/', title: 'All Items' },
-    { path: '/recommended', title: 'Recommended' },
-    { path: '/starred', title: 'Starred' },
-    { path: '/listened', title: 'Listened' },
-    { path: '/chats', title: 'Chats' }
-  ];
-
   // Add this helper function to calculate visible items (move it up before effects)
   const visibleItems = useMemo<VisibleItem[]>(() => {
     const items: VisibleItem[] = [];
     
     // Add main items
-    items.push(...mainItems);
+    items.push(...MAIN_ITEMS);
     
     // Add search items if not collapsed
     if (!isSearchesCollapsed && searchItems.length > 0) {
@@ -213,7 +215,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     });
     
     return items;
-  }, [mainItems, searchItems, feedItems, folders, feeds, isSearchesCollapsed, collapsedFolders]);
+  }, [searchItems, feedItems, folders, feeds, isSearchesCollapsed, collapsedFolders]);
 
   const loadData = useCallback(async () => {
     try {
@@ -282,14 +284,19 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [onRegisterRefreshFeeds, handleRefreshAllFeeds]);
 
-  // Keep initial route sync effect
+  // Keep initial route sync effect. isKeyboardNavRef is a one-shot flag: when a
+  // keyboard navigation just moved the route, consume it and skip this sync once
+  // (so we don't fight the user), then reset so later route changes — e.g.
+  // browser back/forward — still move the highlight to the active route.
   useEffect(() => {
-    if (!isKeyboardNavRef.current) {
-      const currentPath = location.pathname;
-      const index = visibleItems.findIndex(item => item.path === currentPath);
-      if (index !== -1 && index !== selectedIndex) {
-        onSelectedIndexChange(index);
-      }
+    if (isKeyboardNavRef.current) {
+      isKeyboardNavRef.current = false;
+      return;
+    }
+    const currentPath = location.pathname;
+    const index = visibleItems.findIndex(item => item.path === currentPath);
+    if (index !== -1 && index !== selectedIndex) {
+      onSelectedIndexChange(index);
     }
   }, [location.pathname, visibleItems, selectedIndex, onSelectedIndexChange]);
 
@@ -536,7 +543,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     >
       <nav className={`py-4 ${isDarkMode ? 'text-gray-100' : 'text-gray-900'}`}>
         {/* Main Items */}
-        {mainItems.map((item, index) => (
+        {MAIN_ITEMS.map((item, index) => (
           <SidebarMainItem
             key={item.path}
             path={item.path}
