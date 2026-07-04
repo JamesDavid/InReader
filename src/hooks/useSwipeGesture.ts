@@ -49,6 +49,29 @@ export function useSwipeGesture(
   const longPressFiredRef = useRef(false);
   const isRevealedRef = useRef(false);
 
+  const mountedRef = useRef(true);
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
+  // Track mount + all deferred timers so pending animation callbacks don't fire
+  // setState (or the archive callback) after the row unmounts.
+  useEffect(() => {
+    mountedRef.current = true;
+    const timers = timersRef.current;
+    return () => {
+      mountedRef.current = false;
+      timers.forEach(t => clearTimeout(t));
+      timers.clear();
+    };
+  }, []);
+
+  const scheduleTimeout = useCallback((cb: () => void, delay: number) => {
+    const t = setTimeout(() => {
+      timersRef.current.delete(t);
+      if (mountedRef.current) cb();
+    }, delay);
+    timersRef.current.add(t);
+  }, []);
+
   const clearLongPress = useCallback(() => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
@@ -64,10 +87,10 @@ export function useSwipeGesture(
       isRevealed: false,
       isTransitioning: true,
     }));
-    setTimeout(() => {
+    scheduleTimeout(() => {
       setState(prev => ({ ...prev, isTransitioning: false }));
     }, 300);
-  }, []);
+  }, [scheduleTimeout]);
 
   useEffect(() => {
     const el = elementRef.current;
@@ -194,16 +217,16 @@ export function useSwipeGesture(
       });
 
       if (action === 'archive') {
-        setTimeout(() => {
+        scheduleTimeout(() => {
           callbacksRef.current.onSwipeLeft();
         }, 300);
       } else if (action === 'reveal') {
         isRevealedRef.current = true;
-        setTimeout(() => {
+        scheduleTimeout(() => {
           setState(s => ({ ...s, isTransitioning: false }));
         }, 300);
       } else if (action === 'snap-back') {
-        setTimeout(() => {
+        scheduleTimeout(() => {
           setState(s => ({ ...s, isTransitioning: false }));
         }, 300);
       }
@@ -221,7 +244,7 @@ export function useSwipeGesture(
       el.removeEventListener('touchcancel', handleTouchEnd);
       clearLongPress();
     };
-  }, [enabled, revealThreshold, archiveThreshold, revealDistance, longPressDelay, clearLongPress, resetReveal, elementRef]);
+  }, [enabled, revealThreshold, archiveThreshold, revealDistance, longPressDelay, clearLongPress, resetReveal, scheduleTimeout, elementRef]);
 
   return { state, resetReveal };
 }

@@ -47,11 +47,18 @@ export function usePullToRefresh(
   const isRefreshingRef = useRef(false);
   const pullDistanceRef = useRef(0);
   const onRefreshRef = useRef(onRefresh);
+  const mountedRef = useRef(true);
 
   // Keep callback ref in sync
   useEffect(() => {
     onRefreshRef.current = onRefresh;
   }, [onRefresh]);
+
+  // Track mount so an in-flight refresh doesn't setState after unmount.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     if (!enabled) return;
@@ -117,7 +124,10 @@ export function usePullToRefresh(
             await onRefreshRef.current();
           } finally {
             isRefreshingRef.current = false;
-            setState({ pullDistance: 0, isRefreshing: false, isPulling: false });
+            // The refresh may resolve after the component unmounted.
+            if (mountedRef.current) {
+              setState({ pullDistance: 0, isRefreshing: false, isPulling: false });
+            }
           }
         } else {
           setState({ pullDistance: 0, isRefreshing: false, isPulling: false });
