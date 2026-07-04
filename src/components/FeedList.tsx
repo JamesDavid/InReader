@@ -132,11 +132,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     }
   }, [displayItems.length, selectedIndex, onSelectedIndexChange]);
 
-  // Handle scrolling
-  useEffect(() => {
-    if (!isFocused || displayItems.length === 0) return;
-  }, [selectedIndex, isFocused, displayItems.length]);
-
   const handleMarkAsRead = useCallback(async (entryId: number, isRead?: boolean) => {
     // Dispatch event first for immediate UI update
     window.dispatchEvent(new CustomEvent('entryReadChanged', {
@@ -182,9 +177,10 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   }, [entries]);
 
   const getContentLength = (content: string): number => {
-    const div = document.createElement('div');
-    div.innerHTML = content;
-    return (div.textContent || div.innerText || '').length;
+    // DOMParser parses without executing scripts or fetching resources
+    // (e.g. <img onerror>), unlike assigning to a live element's innerHTML.
+    const doc = new DOMParser().parseFromString(content, 'text/html');
+    return (doc.body.textContent || '').length;
   };
 
   const isContentFullyVisible = useCallback((entryId: number) => {
@@ -301,7 +297,11 @@ const FeedList: React.FC<FeedListProps> = (props) => {
       try {
         let loadedEntries: FeedEntryWithTitle[];
         let totalEntriesCount = 0;
-        
+        // This effect runs on route change and always loads the first page
+        // (currentPage is reset to 1 below). Use a literal 1 rather than the
+        // closed-over currentPage, which still holds the previous route's page.
+        const page = 1;
+
         if (props.entries) {
           loadedEntries = props.entries;
           totalEntriesCount = props.entries.length;
@@ -326,16 +326,9 @@ const FeedList: React.FC<FeedListProps> = (props) => {
             .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
           totalEntriesCount = loadedEntries.length;
         } else if (feedId) {
-          const result = await getFeedEntries(parseInt(feedId), currentPage, ITEMS_PER_PAGE);
+          const result = await getFeedEntries(parseInt(feedId), page, ITEMS_PER_PAGE);
           loadedEntries = result.entries;
           totalEntriesCount = result.total;
-          console.log('Feed entries loaded:', {
-            feedId,
-            totalEntriesCount: result.total,
-            loadedCount: result.entries.length,
-            currentPage,
-            totalPages: result.totalPages
-          });
         } else if (location.pathname === '/starred') {
           loadedEntries = await getStarredEntries();
           totalEntriesCount = loadedEntries.length;
@@ -352,15 +345,9 @@ const FeedList: React.FC<FeedListProps> = (props) => {
           loadedEntries = await getRecommendedEntries();
           totalEntriesCount = loadedEntries.length;
         } else {
-          const result = await getAllEntries(currentPage, ITEMS_PER_PAGE);
+          const result = await getAllEntries(page, ITEMS_PER_PAGE);
           loadedEntries = result.entries;
           totalEntriesCount = result.total;
-          console.log('All entries loaded:', {
-            totalEntriesCount: result.total,
-            loadedCount: result.entries.length,
-            currentPage,
-            totalPages: result.totalPages
-          });
         }
         
         setEntries(loadedEntries);
@@ -404,19 +391,28 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     // Set a timer to mark as read after dwelling (desktop only)
     readTimerRef.current[entry.id] = setTimeout(async () => {
       await markAsRead(entry.id!);
-      // Update the entry in the local state immediately
-      const updatedEntries = entries.map(e =>
-        e.id === entry.id
-          ? { ...e, isRead: true }
-          : e
-      );
-      setEntries(updatedEntries);
-      // Notify parent component of the update
-      props.onEntriesUpdate?.(updatedEntries);
+      // Use the functional form so a concurrent star/read update isn't clobbered.
+      setEntries(prev => {
+        const updatedEntries = prev.map(e =>
+          e.id === entry.id
+            ? { ...e, isRead: true }
+            : e
+        );
+        props.onEntriesUpdate?.(updatedEntries);
+        return updatedEntries;
+      });
       // Clean up the timer reference
       delete readTimerRef.current[entry.id!];
     }, 2000); // 2 second dwell time
-  }, [entries, props.onEntriesUpdate, isMobile]);
+  }, [props.onEntriesUpdate, isMobile]);
+
+  // Clear any pending dwell timers on unmount to avoid setState-after-unmount.
+  useEffect(() => {
+    const timers = readTimerRef.current;
+    return () => {
+      Object.values(timers).forEach(t => clearTimeout(t));
+    };
+  }, []);
 
   // Replace the database hook effect with this updated version
   useEffect(() => {

@@ -180,6 +180,17 @@ class ReaderDatabase extends Dexie {
       savedSearches: savedSearchesSchema,
       interestTags: interestTagsSchema
     });
+
+    // v62022: add a [feedId+publishDate] compound index so per-feed pagination
+    // can page in publishDate order at the DB level (previously it sliced by id
+    // order and only re-sorted the page, returning the wrong entries per page).
+    this.version(62022).stores({
+      feeds: feedsSchema,
+      entries: entriesSchema + ', [feedId+publishDate]',
+      folders: foldersSchema,
+      savedSearches: savedSearchesSchema,
+      interestTags: interestTagsSchema
+    });
   }
 }
 
@@ -389,13 +400,15 @@ export async function getFeedEntries(feedId: number, page: number = 1, pageSize:
   const offset = (page - 1) * pageSize;
   
   const [entries, total] = await Promise.all([
+    // Page in descending publishDate order using the [feedId+publishDate] index,
+    // so offset/limit select the correct page (not id-insertion order).
     db.entries
-      .where('feedId')
-      .equals(feedId)
+      .where('[feedId+publishDate]')
+      .between([feedId, Dexie.minKey], [feedId, Dexie.maxKey])
       .reverse()
       .offset(offset)
       .limit(pageSize)
-      .sortBy('publishDate'),
+      .toArray(),
     db.entries
       .where('feedId')
       .equals(feedId)
