@@ -1,11 +1,9 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useLocation, useOutletContext } from 'react-router-dom';
-import { getFeedEntries, getAllEntries, getStarredEntries, getListenedEntries, getRecommendedEntries, getFeedsByFolder, getAllFeeds, markAsRead, toggleStar, type FeedEntryWithTitle, db } from '../services/db';
+import { getFeedEntries, getAllEntries, getStarredEntries, getListenedEntries, getRecommendedEntries, markAsRead, toggleStar, type FeedEntryWithTitle } from '../services/db';
 import ChatModal from './ChatModal';
 import FeedListEntry from './FeedListEntry';
-import { refreshFeed, refreshFeeds } from '../services/feedParser';
-import { usePullToRefresh } from '../hooks/usePullToRefresh';
-import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
+import { useFeedEntries } from '../hooks/useFeedEntries';
 import { getInterestProfile } from '../services/interestService';
 import { useMobileDetection } from '../hooks/useMobileDetection';
 import { dispatchAppEvent } from '../utils/eventDispatcher';
@@ -45,7 +43,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const onOpenChat = context.onOpenChat;
 
   const isMobile = useMobileDetection();
-  const [entries, setEntries] = useState<FeedEntryWithTitle[]>([]);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatEntry, setChatEntry] = useState<FeedEntryWithTitle | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -55,16 +52,31 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   const { feedId } = useParams();
   const location = useLocation();
   const folderId = location.pathname.startsWith('/folder/') ? location.pathname.split('/folder/')[1] : null;
+
+  // Entry loading, DB pagination / infinite scroll, and pull-to-refresh.
+  const {
+    entries,
+    setEntries,
+    totalItems,
+    hasMore,
+    sentinelRef,
+    isLoadingMore,
+    pullState,
+  } = useFeedEntries({
+    propEntries: props.entries,
+    feedId,
+    folderId,
+    pathname: location.pathname,
+    pageSize: ITEMS_PER_PAGE,
+    listRef,
+  });
+
   const [expandedEntries, setExpandedEntries] = useState<{ [key: number]: boolean }>({});
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
   const [dismissedEntryIds, setDismissedEntryIds] = useState<Set<number>>(new Set());
   const [interestTagNames, setInterestTagNames] = useState<Set<string>>(new Set());
   const displayItemsRef = useRef<FeedEntryWithTitle[]>([]);
   const selectedEntryIdRef = useRef<number | null>(selectedEntryId);
   const selectedIndexRef = useRef<number>(selectedIndex);
-  const isLoadingMoreRef = useRef(false);
 
   // Filter entries based on showUnreadOnly and dismissed entries
   const displayItems = useMemo(() => {
@@ -82,46 +94,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
   displayItemsRef.current = displayItems;
   selectedEntryIdRef.current = selectedEntryId;
   selectedIndexRef.current = selectedIndex;
-
-  // Load more entries for infinite scroll
-  const loadMoreEntries = useCallback(async () => {
-    if (isLoadingMoreRef.current || !hasMore) return;
-    isLoadingMoreRef.current = true;
-
-    try {
-      const nextPage = currentPage + 1;
-
-      // Only DB-paginated routes (All Items, single Feed) need to load more
-      if (!props.entries && !folderId && !location.pathname.startsWith('/starred') && !location.pathname.startsWith('/listened') && !location.pathname.startsWith('/recommended')) {
-        let result;
-        if (feedId) {
-          result = await getFeedEntries(parseInt(feedId), nextPage, ITEMS_PER_PAGE);
-        } else {
-          result = await getAllEntries(nextPage, ITEMS_PER_PAGE);
-        }
-
-        if (result.entries.length > 0) {
-          setEntries(prev => [...prev, ...result.entries]);
-          setCurrentPage(nextPage);
-          setHasMore(entries.length + result.entries.length < result.total);
-        } else {
-          setHasMore(false);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading more entries:', error);
-    } finally {
-      isLoadingMoreRef.current = false;
-    }
-  }, [currentPage, hasMore, feedId, folderId, location.pathname, props.entries, entries.length]);
-
-  // Infinite scroll hook
-  const { sentinelRef, isLoading: isLoadingMore } = useInfiniteScroll({
-    onLoadMore: loadMoreEntries,
-    hasMore,
-    threshold: 300,
-    enabled: !props.entries && !folderId && !location.pathname.startsWith('/starred') && !location.pathname.startsWith('/listened') && !location.pathname.startsWith('/recommended'),
-  });
 
   // Ensure selection is within bounds
   useEffect(() => {
@@ -180,121 +152,6 @@ const FeedList: React.FC<FeedListProps> = (props) => {
     const doc = new DOMParser().parseFromString(content, 'text/html');
     return (doc.body.textContent || '').length;
   };
-
-  const handlePullToRefresh = useCallback(async () => {
-    if (feedId) {
-      const feed = await db.feeds.get(parseInt(feedId));
-      if (feed) {
-        await refreshFeed(feed);
-        const loaded = (await getFeedEntries(parseInt(feedId))).entries;
-        setEntries(loaded);
-      }
-    } else if (folderId) {
-      const folderFeeds = await getFeedsByFolder(parseInt(folderId));
-      await refreshFeeds(folderFeeds);
-      const results = await Promise.all(folderFeeds.map(f => getFeedEntries(f.id!)));
-      const loaded = results.flatMap(r => r.entries)
-        .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
-      setEntries(loaded);
-    } else {
-      const allFeeds = await getAllFeeds();
-      await refreshFeeds(allFeeds);
-      if (location.pathname === '/starred') {
-        setEntries(await getStarredEntries());
-      } else if (location.pathname === '/listened') {
-        setEntries(await getListenedEntries());
-      } else if (location.pathname === '/recommended') {
-        setEntries(await getRecommendedEntries());
-      } else {
-        const result = await getAllEntries(currentPage, ITEMS_PER_PAGE);
-        setEntries(result.entries);
-      }
-    }
-  }, [feedId, folderId, location.pathname, currentPage]);
-
-  const { state: pullState } = usePullToRefresh(listRef, {
-    onRefresh: handlePullToRefresh,
-    enabled: true,
-  });
-
-  // Load entries based on current route
-  useEffect(() => {
-    const loadEntries = async () => {
-      try {
-        let loadedEntries: FeedEntryWithTitle[];
-        let totalEntriesCount = 0;
-        // This effect runs on route change and always loads the first page
-        // (currentPage is reset to 1 below). Use a literal 1 rather than the
-        // closed-over currentPage, which still holds the previous route's page.
-        const page = 1;
-
-        if (props.entries) {
-          loadedEntries = props.entries;
-          totalEntriesCount = props.entries.length;
-        } else if (folderId) {
-          // Get all feeds in the folder
-          const folderFeeds = await getFeedsByFolder(parseInt(folderId));
-          // Get entries for each feed and combine them
-          const entriesPromises = folderFeeds.map(feed => getFeedEntries(feed.id!));
-          const feedEntries = await Promise.all(entriesPromises);
-          // Flatten and ensure dates are properly converted
-          loadedEntries = feedEntries
-            .map(result => result.entries)
-            .flat()
-            .map(entry => ({
-              ...entry,
-              publishDate: new Date(entry.publishDate),
-              readDate: entry.readDate ? new Date(entry.readDate) : undefined,
-              starredDate: entry.starredDate ? new Date(entry.starredDate) : undefined,
-              listenedDate: entry.listenedDate ? new Date(entry.listenedDate) : undefined,
-              lastChatDate: entry.lastChatDate ? new Date(entry.lastChatDate) : undefined
-            }))
-            .sort((a, b) => b.publishDate.getTime() - a.publishDate.getTime());
-          totalEntriesCount = loadedEntries.length;
-        } else if (feedId) {
-          const result = await getFeedEntries(parseInt(feedId), page, ITEMS_PER_PAGE);
-          loadedEntries = result.entries;
-          totalEntriesCount = result.total;
-        } else if (location.pathname === '/starred') {
-          loadedEntries = await getStarredEntries();
-          totalEntriesCount = loadedEntries.length;
-        } else if (location.pathname === '/listened') {
-          loadedEntries = await getListenedEntries();
-          totalEntriesCount = loadedEntries.length;
-          // Sort by listenedDate in descending order
-          loadedEntries.sort((a, b) => {
-            const dateA = a.listenedDate?.getTime() || 0;
-            const dateB = b.listenedDate?.getTime() || 0;
-            return dateB - dateA;
-          });
-        } else if (location.pathname === '/recommended') {
-          loadedEntries = await getRecommendedEntries();
-          totalEntriesCount = loadedEntries.length;
-        } else {
-          const result = await getAllEntries(page, ITEMS_PER_PAGE);
-          loadedEntries = result.entries;
-          totalEntriesCount = result.total;
-        }
-        
-        setEntries(loadedEntries);
-        setTotalItems(totalEntriesCount);
-
-        // For DB-paginated routes, check if there are more items to load
-        const isDBPaginated = !props.entries && !folderId && !location.pathname.startsWith('/starred') && !location.pathname.startsWith('/listened') && !location.pathname.startsWith('/recommended');
-        setHasMore(isDBPaginated && loadedEntries.length < totalEntriesCount);
-      } catch (error) {
-        console.error('Error loading entries:', error);
-        setEntries([]);
-        setTotalItems(0);
-        setHasMore(false);
-      }
-    };
-
-    // Reset state when route changes
-    setCurrentPage(1);
-    setHasMore(true);
-    loadEntries();
-  }, [feedId, folderId, location.pathname, props.entries]);
 
   const toggleExpanded = useCallback((entryId: number) => {
     // Don't toggle if content is short
